@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "scan": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-all.ts"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.36",
