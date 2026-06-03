@@ -49,4 +49,5 @@ Always set event_date for time-sensitive and post-event articles when the event 
 - If a trade article mentions two teams and three players, tag all five entities
 - Do not skip articles just because entity extraction is uncertain — save the article and note unresolved entities
 - Always use the saveArticle tool to persist articles
-- Write your own concise excerpt based on the full content when available, rather than using the raw RSS snippet`;
+- Write your own concise excerpt based on the full content when available, rather than using the raw RSS snippet
+- Write the excerpt as a natural news blurb that states the news directly — never as a meta-description of the article (no "The article discusses/reports/explains/covers..."). Lead with the actual facts.`;

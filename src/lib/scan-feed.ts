@@ -6,7 +6,11 @@ import { readArticle } from './article-reader';
 import { resolveEntities } from './resolve-entities';
 
 const articleAnalysisSchema = z.object({
-  excerpt: z.string().describe('A concise 1-3 sentence summary'),
+  excerpt: z
+    .string()
+    .describe(
+      'A natural, news-style summary in 1-3 sentences that states the actual news directly. Do NOT describe the article — never start with meta-phrases like "The article discusses/reports/explains/covers...". Lead with the facts (who/what), as a news blurb would.',
+    ),
   isGameRecap: z.boolean(),
   players: z.array(z.string()).describe('Full player names mentioned'),
   teams: z.array(z.string()).describe('Team names mentioned'),

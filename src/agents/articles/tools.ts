@@ -140,7 +140,7 @@ export const articleTools = {
       excerpt: z
         .string()
         .describe(
-          'A concise 1-3 sentence summary of the article. Write this yourself based on the full content if available.',
+          'A natural, news-style summary in 1-3 sentences that states the actual news directly. Write it yourself based on the full content if available. Do NOT describe the article — never start with meta-phrases like "The article discusses/reports/explains/covers...". Lead with the facts (who/what), as a news blurb would.',
         ),
       publishedAt: z.string().describe('ISO 8601 publication date'),
       author: z.string().optional().describe('The article author, if known'),
