@@ -1,11 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 import { scanFeed } from '@/lib/scan-feed';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!,
-);
+import { supabase } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   const { feedId } = await request.json();
