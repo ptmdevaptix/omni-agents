@@ -1,0 +1,48 @@
+name: Scan roster moves (free sources)
+
+# Deterministic, free, idempotent scanners for NCAA roster moves. Safe to run
+# daily — re-runs just upsert/corroborate via dedup_key. No LLM or X token
+# needed; only the Supabase secrets. (The X-sourced scanner is separate and
+# manual — see scan-moves.yml.)
+on:
+  schedule:
+    - cron: '0 11 * * *' # daily ~11:00 UTC (GitHub cron is best-effort)
+  workflow_dispatch:
+
+# Don't let two runs race the DB; a new run waits.
+concurrency:
+  group: scan-roster-moves
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Each scanner reports its own errors and exits 0 on source hiccups, so a
+      # bad fetch in one won't block the others.
+      - name: Transfer portal (GopherPuckLive)
+        run: npm run scan:portal
+
+      - name: Commitments (Neutral Zone)
+        run: npm run scan:nz
+
+      - name: Commitments (The Hockey News)
+        run: npm run scan:commitments
+
+      # Confirmed backbone — no-ops until 2026-27 rosters are seeded, then
+      # upgrades the early rows to confirmed automatically.
+      - name: Season diff
+        run: npm run season-diff

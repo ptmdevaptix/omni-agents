@@ -1,0 +1,35 @@
+name: Scan roster moves
+
+# Manual only for now. The X API is pay-per-use; run the pilot (contract §8 Q4)
+# by hand from the Actions tab before enabling a schedule. To poll ~2x/day once
+# the pilot looks good, uncomment the schedule block below.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 13,23 * * *'  # ~2x/day (UTC)
+
+concurrency:
+  group: scan-roster-moves
+  cancel-in-progress: false
+
+jobs:
+  scan-moves:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Scan roster moves
+        run: npm run scan:moves
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
