@@ -1,0 +1,30 @@
+[
+  {
+    "id": "1001",
+    "handle": "SchlossmanGF",
+    "text": "Welcome to Boston University! Forward Jack Harrington (F, 2027) has committed to BU for next season. Big pickup for the Terriers. 🐕",
+    "createdAt": "2026-07-01T14:00:00Z",
+    "imageUrls": []
+  },
+  {
+    "id": "1002",
+    "handle": "SchlossmanGF",
+    "text": "Transfer news: Defenseman Milo Novak is transferring from Omaha to Denver for 2026-27.",
+    "createdAt": "2026-07-02T16:30:00Z",
+    "imageUrls": []
+  },
+  {
+    "id": "1003",
+    "handle": "MikeMcMahonCHN",
+    "text": "Goalie Anders Lindqvist has entered the portal and is leaving Minnesota Duluth. Destination TBD.",
+    "createdAt": "2026-07-03T12:00:00Z",
+    "imageUrls": []
+  },
+  {
+    "id": "1004",
+    "handle": "MikeMcMahonCHN",
+    "text": "Big weekend for the program — hyped for what's ahead. More news soon. Details: https://www.eliteprospects.com/some-article",
+    "createdAt": "2026-07-04T09:00:00Z",
+    "imageUrls": []
+  }
+]

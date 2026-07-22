@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "scan": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-all.ts"
+    "scan": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-all.ts",
+    "scan:moves": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-moves.ts",
+    "season-diff": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/season-diff-moves.ts",
+    "scan:portal": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-portal.ts",
+    "scan:commitments": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-commitments.ts",
+    "scan:nz": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-nz-commitments.ts",
+    "seed:x-accounts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-x-accounts.ts"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.36",
