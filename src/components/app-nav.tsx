@@ -16,6 +16,7 @@ export function AppNav() {
   const links = [
     { href: '/articles', label: 'Articles' },
     { href: '/admin/feeds', label: 'Manage Feeds' },
+    { href: '/admin/research', label: 'Research' },
   ];
 
   return (
