@@ -184,18 +184,22 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: `unknown kind "${kind}"` }, { status: 400 });
   }
 
+  // finalize=false → a partial "save": the override is written, but the item
+  // stays in the queue (in_progress) until all data is in / it's approved.
+  const finalize = body.finalize !== false;
   const now = new Date().toISOString();
-  const { error: stateErr } = await supabase.from('research_task_state').upsert(
-    {
-      dedup_key: dedupKey,
-      status: 'resolved',
-      resolution,
-      resolved_at: now,
-      updated_at: now,
-    },
-    { onConflict: 'dedup_key' },
-  );
+  const statePatch: Record<string, unknown> = {
+    dedup_key: dedupKey,
+    status: finalize ? 'resolved' : 'in_progress',
+    resolution,
+    updated_at: now,
+  };
+  if (finalize) statePatch.resolved_at = now;
+
+  const { error: stateErr } = await supabase
+    .from('research_task_state')
+    .upsert(statePatch, { onConflict: 'dedup_key' });
   if (stateErr) return Response.json({ error: stateErr.message }, { status: 400 });
 
-  return Response.json({ success: true, resolution });
+  return Response.json({ success: true, resolution, finalized: finalize });
 }
