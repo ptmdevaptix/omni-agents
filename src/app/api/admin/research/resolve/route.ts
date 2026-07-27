@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     };
     const map: Record<string, string> = {
       position: 'position',
+      classYear: 'class_year',
       heightInches: 'height_inches',
       weightLbs: 'weight_lbs',
       birthDate: 'birth_date',
@@ -86,16 +87,27 @@ export async function POST(request: NextRequest) {
         fields[col] = body[k];
       }
     }
-    const { error } = await supabase
+    let { error } = await supabase
       .from('player_bio_overrides')
       .upsert(row, { onConflict: 'player_norm,seo' });
+    // Cutover resilience: if class_year isn't a column yet, drop it and retry so
+    // the other bio fields still save (class_year lands once omni-hockey adds it).
+    let classYearDropped = false;
+    if (error && /class_year/.test(error.message) && 'class_year' in row) {
+      delete row.class_year;
+      delete fields.class_year;
+      classYearDropped = true;
+      ({ error } = await supabase
+        .from('player_bio_overrides')
+        .upsert(row, { onConflict: 'player_norm,seo' }));
+    }
     if (error) {
       return Response.json(
         { error: `${error.message} (player_bio_overrides may not exist yet — omni-hockey cutover)` },
         { status: 400 },
       );
     }
-    resolution = { type: 'bio', player_norm: playerNorm, seo: seo || null, fields };
+    resolution = { type: 'bio', player_norm: playerNorm, seo: seo || null, fields, ...(classYearDropped && { class_year_deferred: true }) };
   } else if (kind === 'suppress') {
     const { seo, playerNorm, playerName, reason } = body;
     if (!seo || !playerNorm) {
