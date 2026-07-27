@@ -134,6 +134,7 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
   const [note, setNote] = useState('');
   // bio fields
   const [position, setPosition] = useState('');
+  const [classYear, setClassYear] = useState('');
   const [heightInches, setHeightInches] = useState('');
   const [weightLbs, setWeightLbs] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -149,6 +150,7 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     setCanonicalName('');
     setNote('');
     setPosition(item.position ?? '');
+    setClassYear(item.class_year ? String(item.class_year) : '');
     setHeightInches('');
     setWeightLbs('');
     setBirthDate('');
@@ -172,6 +174,7 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
       payload.playerNorm = item.norm_name;
       payload.seo = item.seo;
       payload.position = position || undefined;
+      payload.classYear = classYear ? Number(classYear) : undefined;
       payload.heightInches = heightInches ? Number(heightInches) : undefined;
       payload.weightLbs = weightLbs ? Number(weightLbs) : undefined;
       payload.birthDate = birthDate || undefined;
@@ -246,6 +249,20 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
                     <SelectItem value="F">F</SelectItem>
                     <SelectItem value="D">D</SelectItem>
                     <SelectItem value="G">G</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Class year</Label>
+                <Select value={classYear || 'none'} onValueChange={(v) => setClassYear(v === 'none' ? '' : v ?? '')}>
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">—</SelectItem>
+                    <SelectItem value="1">Fr</SelectItem>
+                    <SelectItem value="2">So</SelectItem>
+                    <SelectItem value="3">Jr</SelectItem>
+                    <SelectItem value="4">Sr</SelectItem>
+                    <SelectItem value="5">Gr</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
