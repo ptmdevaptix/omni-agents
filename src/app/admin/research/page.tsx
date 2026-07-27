@@ -366,8 +366,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
               <code>{item.player_name}</code>). Add this player&apos;s NHL id too if you know it.
             </p>
             <div className="space-y-1">
-              <Label htmlFor="mergename" className="text-xs">Duplicate spelling (as it appears elsewhere)</Label>
-              <Input id="mergename" value={mergeName} onChange={(e) => setMergeName(e.target.value)} placeholder="e.g. Benny Yurchuk" />
+              <Label htmlFor="mergename" className="text-xs">Duplicate spelling(s) — comma-separated for several</Label>
+              <Input id="mergename" value={mergeName} onChange={(e) => setMergeName(e.target.value)} placeholder="e.g. Benny Yurchuk, B. Yurchuk" />
             </div>
             <div className="space-y-1">
               <Label htmlFor="mergenhl" className="text-xs">This player&apos;s NHL id (optional)</Label>
@@ -539,8 +539,8 @@ function AddAliasDialog({ onSaved }: { onSaved: () => void }) {
         </p>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label className="text-xs">Variant name (as in our data)</Label>
-            <Input value={aliasName} onChange={(e) => setAliasName(e.target.value)} placeholder="e.g. Benny Yurchuk" />
+            <Label className="text-xs">Variant name(s) — comma-separated for several</Label>
+            <Input value={aliasName} onChange={(e) => setAliasName(e.target.value)} placeholder="e.g. Benny Yurchuk, Ben Yurchuck" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Canonical spelling</Label>

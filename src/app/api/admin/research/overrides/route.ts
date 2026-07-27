@@ -28,25 +28,33 @@ export async function POST(request: NextRequest) {
   const { table } = body;
 
   if (table === 'player_aliases') {
-    // Accept a typed variant spelling (aliasName) and normalize it, or an explicit aliasNorm.
-    const aliasNorm = body.aliasNorm || (body.aliasName ? hockeyNorm(body.aliasName) : '');
-    if (!aliasNorm || (!body.nhlId && !body.canonicalName)) {
+    // aliasName may be comma-separated (several spellings → one canonical/nhl);
+    // or an explicit single aliasNorm.
+    const norms = body.aliasNorm
+      ? [String(body.aliasNorm)]
+      : [
+          ...new Set(
+            String(body.aliasName || '')
+              .split(',')
+              .map((s) => hockeyNorm(s))
+              .filter(Boolean),
+          ),
+        ];
+    if (norms.length === 0 || (!body.nhlId && !body.canonicalName)) {
       return Response.json(
         { error: 'alias needs a variant name and one of NHL id / canonical spelling' },
         { status: 400 },
       );
     }
-    const { error } = await supabase.from('player_aliases').upsert(
-      {
-        alias_norm: aliasNorm,
-        seo: body.seo || null,
-        nhl_id: body.nhlId || null,
-        canonical_name: body.canonicalName || null,
-        note: body.note || null,
-        active: true,
-      },
-      { onConflict: 'alias_norm,seo' },
-    );
+    const rows = norms.map((alias_norm) => ({
+      alias_norm,
+      seo: body.seo || null,
+      nhl_id: body.nhlId || null,
+      canonical_name: body.canonicalName || null,
+      note: body.note || null,
+      active: true,
+    }));
+    const { error } = await supabase.from('player_aliases').upsert(rows, { onConflict: 'alias_norm,seo' });
     if (error) return Response.json({ error: error.message }, { status: 400 });
   } else if (table === 'ncaa_suppressions') {
     const { error } = await supabase.from('ncaa_suppressions').upsert(
