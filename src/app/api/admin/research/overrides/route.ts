@@ -8,6 +8,11 @@ import { supabase } from '@/lib/supabase';
  *   ncaa_suppressions  → roster + Changes routes
  */
 
+/** Replicates omni-hockey's normName so a typed variant spelling maps to the alias_norm the resolver looks up. */
+function hockeyNorm(s: string): string {
+  return s.toLowerCase().replace(/[.'’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 export async function GET() {
   const [aliases, suppressions] = await Promise.all([
     supabase.from('player_aliases').select('*').order('id', { ascending: false }),
@@ -23,9 +28,17 @@ export async function POST(request: NextRequest) {
   const { table } = body;
 
   if (table === 'player_aliases') {
+    // Accept a typed variant spelling (aliasName) and normalize it, or an explicit aliasNorm.
+    const aliasNorm = body.aliasNorm || (body.aliasName ? hockeyNorm(body.aliasName) : '');
+    if (!aliasNorm || (!body.nhlId && !body.canonicalName)) {
+      return Response.json(
+        { error: 'alias needs a variant name and one of NHL id / canonical spelling' },
+        { status: 400 },
+      );
+    }
     const { error } = await supabase.from('player_aliases').upsert(
       {
-        alias_norm: body.aliasNorm,
+        alias_norm: aliasNorm,
         seo: body.seo || null,
         nhl_id: body.nhlId || null,
         canonical_name: body.canonicalName || null,
