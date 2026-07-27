@@ -697,6 +697,7 @@ export default function ResearchPage() {
   const [reasonFilter, setReasonFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('open');
   const [teamFilter, setTeamFilter] = useState('all');
+  const [teamQuery, setTeamQuery] = useState('');
   const [seosearch, setSeoSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -805,16 +806,27 @@ export default function ResearchPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Team</Label>
-                <Select value={teamFilter} onValueChange={(v) => setTeamFilter(v ?? 'all')}>
-                  <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All teams</SelectItem>
-                    {teamOptions.map((t) => (
-                      <SelectItem key={t.seo} value={t.seo}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="teamfilter" className="text-xs">Team</Label>
+                <Input
+                  id="teamfilter"
+                  list="team-options"
+                  className="w-52"
+                  value={teamQuery}
+                  onChange={(e) => {
+                    const q = e.target.value;
+                    setTeamQuery(q);
+                    const match = teamOptions.find(
+                      (t) => t.label.toLowerCase() === q.trim().toLowerCase(),
+                    );
+                    setTeamFilter(match ? match.seo : 'all');
+                  }}
+                  placeholder="All teams — type to search"
+                />
+                <datalist id="team-options">
+                  {teamOptions.map((t) => (
+                    <option key={t.seo} value={t.label} />
+                  ))}
+                </datalist>
               </div>
               <div className="space-y-1 flex-1 min-w-48">
                 <Label className="text-xs">Search (player)</Label>
