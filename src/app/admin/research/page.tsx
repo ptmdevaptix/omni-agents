@@ -168,10 +168,10 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     setOpen(true);
   }
 
-  async function submit() {
+  async function submit(finalize: boolean) {
     setSaving(true);
     setError('');
-    const payload: Record<string, unknown> = { dedupKey: item.dedup_key, kind: mode };
+    const payload: Record<string, unknown> = { dedupKey: item.dedup_key, kind: mode, finalize };
     if (mode === 'alias') {
       payload.aliasNorm = item.norm_name;
       payload.seo = item.seo;
@@ -405,9 +405,17 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
         )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 items-center">
+          <span className="text-xs text-muted-foreground mr-auto">
+            Save keeps the item in the queue; Save &amp; resolve clears it.
+          </span>
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Resolve'}</Button>
+          <Button variant="outline" onClick={() => submit(false)} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button onClick={() => submit(true)} disabled={saving}>
+            {saving ? 'Saving…' : 'Save & resolve'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -877,6 +885,9 @@ export default function ResearchPage() {
                                 )}
                                 {effectiveStatus(item) !== 'dismissed' && effectiveStatus(item) !== 'resolved' && (
                                   <Button size="sm" variant="ghost" onClick={() => setStatus(item, 'dismissed')}>Dismiss</Button>
+                                )}
+                                {effectiveStatus(item) !== 'resolved' && (
+                                  <Button size="sm" variant="ghost" onClick={() => setStatus(item, 'resolved')} title="Clear from queue as-is (no data change)">Approve</Button>
                                 )}
                                 <ResolveDialog item={item} onResolved={load} />
                               </div>
