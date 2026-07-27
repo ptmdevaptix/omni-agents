@@ -39,28 +39,35 @@ export async function POST(request: NextRequest) {
 
   if (kind === 'alias') {
     const { seo, nhlId, canonicalName, note } = body;
-    // aliasNorm can be given explicitly (this item's own spelling) or as a typed
-    // aliasName (a DIFFERENT/duplicate spelling to merge into this player).
-    const aliasNorm = body.aliasNorm || (body.aliasName ? hockeyNorm(body.aliasName) : '');
-    if (!aliasNorm || (!nhlId && !canonicalName)) {
+    // aliasNorm = this item's own spelling (Link); aliasName = one OR MORE
+    // (comma-separated) other/duplicate spellings to merge into this player.
+    const norms = body.aliasNorm
+      ? [String(body.aliasNorm)]
+      : [
+          ...new Set(
+            String(body.aliasName || '')
+              .split(',')
+              .map((s) => hockeyNorm(s))
+              .filter(Boolean),
+          ),
+        ];
+    if (norms.length === 0 || (!nhlId && !canonicalName)) {
       return Response.json(
         { error: 'alias needs a spelling and one of nhlId / canonicalName' },
         { status: 400 },
       );
     }
-    const { error } = await supabase.from('player_aliases').upsert(
-      {
-        alias_norm: aliasNorm,
-        seo: seo || null,
-        nhl_id: nhlId || null,
-        canonical_name: canonicalName || null,
-        note: note || null,
-        active: true,
-      },
-      { onConflict: 'alias_norm,seo' },
-    );
+    const rows = norms.map((alias_norm) => ({
+      alias_norm,
+      seo: seo || null,
+      nhl_id: nhlId || null,
+      canonical_name: canonicalName || null,
+      note: note || null,
+      active: true,
+    }));
+    const { error } = await supabase.from('player_aliases').upsert(rows, { onConflict: 'alias_norm,seo' });
     if (error) return Response.json({ error: error.message }, { status: 400 });
-    resolution = { type: 'alias', alias_norm: aliasNorm, seo: seo || null, nhl_id: nhlId || null, canonical_name: canonicalName || null };
+    resolution = { type: 'alias', alias_norms: norms, seo: seo || null, nhl_id: nhlId || null, canonical_name: canonicalName || null };
   } else if (kind === 'bio') {
     const { playerNorm, seo } = body;
     if (!playerNorm) {
