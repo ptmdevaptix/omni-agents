@@ -55,6 +55,9 @@ interface Item {
   source: string;
   position: string | null;
   class_year: number | null;
+  missing_fields: string[] | null;
+  prior_team: string | null;
+  prior_league: string | null;
   nhl_candidates: NhlCandidate[];
   hints: Record<string, unknown>;
   detected_at: string;
@@ -79,19 +82,15 @@ interface SuppressionRow {
 }
 
 const REASON_LABEL: Record<string, string> = {
-  no_match: 'No match',
-  ambiguous: 'Ambiguous',
-  unlinked_move: 'Unlinked move',
-  missing_bio: 'Missing bio',
+  missing_data: 'Missing data',
+  no_player_page: 'No player page',
   resolved_upstream: 'Resolved upstream',
 };
 
 function ReasonBadge({ reason }: { reason: string }) {
   const cls: Record<string, string> = {
-    no_match: 'bg-red-600 text-white',
-    ambiguous: 'bg-amber-600 text-white',
-    unlinked_move: 'bg-orange-600 text-white',
-    missing_bio: 'bg-blue-600 text-white',
+    missing_data: 'bg-amber-600 text-white',
+    no_player_page: 'bg-blue-600 text-white',
     resolved_upstream: 'bg-green-700 text-white',
   };
   return <Badge className={cls[reason] ?? ''}>{REASON_LABEL[reason] ?? reason}</Badge>;
@@ -127,7 +126,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
   const [note, setNote] = useState('');
 
   function openDialog() {
-    setMode(item.reason === 'missing_bio' ? 'note' : 'alias');
+    // missing_data ⇒ usually a bio re-pull (note); no_player_page ⇒ link (alias).
+    setMode(item.reason === 'missing_data' ? 'note' : 'alias');
     setNhlId('');
     setCanonicalName('');
     setNote('');
@@ -468,6 +468,9 @@ export default function ResearchPage() {
     });
   }, [items, reasonFilter, statusFilter, seosearch]);
 
+  const RENDER_CAP = 300;
+  const visible = filtered.slice(0, RENDER_CAP);
+
   return (
     <div className="flex flex-col flex-1">
       <AppNav />
@@ -542,6 +545,7 @@ export default function ResearchPage() {
                       <TableHead>Reason</TableHead>
                       <TableHead>Player</TableHead>
                       <TableHead>Team</TableHead>
+                      <TableHead>Prior team</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Notes</TableHead>
@@ -550,13 +554,13 @@ export default function ResearchPage() {
                   </TableHeader>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
                     ) : filtered.length === 0 ? (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         {items.length === 0 ? 'Queue is empty — the omni-hockey detector hasn’t emitted candidates yet.' : 'No items match the filters.'}
                       </TableCell></TableRow>
                     ) : (
-                      filtered.map((item) => (
+                      visible.map((item) => (
                         <TableRow key={item.dedup_key}>
                           <TableCell className="text-muted-foreground">{item.priority}</TableCell>
                           <TableCell><ReasonBadge reason={item.reason} /></TableCell>
@@ -567,10 +571,27 @@ export default function ResearchPage() {
                                 {[item.position, item.class_year ? `Yr ${item.class_year}` : null].filter(Boolean).join(' · ')}
                               </div>
                             )}
+                            {item.reason === 'missing_data' && item.missing_fields && item.missing_fields.length > 0 && (
+                              <div className="text-xs text-amber-500 mt-0.5">
+                                missing: {item.missing_fields.join(', ')}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div>{item.team_name ?? item.seo}</div>
                             <div className="text-xs text-muted-foreground">{item.seo}</div>
+                          </TableCell>
+                          <TableCell>
+                            {item.prior_team ? (
+                              <div className="text-sm">
+                                {item.prior_team}
+                                {item.prior_league && (
+                                  <span className="text-muted-foreground"> ({item.prior_league})</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{item.source || '—'}</TableCell>
                           <TableCell><StatusBadge status={effectiveStatus(item)} /></TableCell>
@@ -599,6 +620,11 @@ export default function ResearchPage() {
                     )}
                   </TableBody>
                 </Table>
+                {filtered.length > RENDER_CAP && (
+                  <div className="px-4 py-3 text-sm text-muted-foreground border-t">
+                    Showing {RENDER_CAP} of {filtered.length} — refine the filters (reason / team / status) to narrow down.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>

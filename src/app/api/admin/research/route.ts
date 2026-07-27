@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { fetchAll, type Rangeable } from '@/lib/roster-moves/db';
 
 /**
  * Research queue — omni-agents owns the management UI + workflow state.
@@ -24,6 +25,9 @@ interface CandidateRow {
   source: string;
   position: string | null;
   class_year: number | null;
+  missing_fields: string[] | null;
+  prior_team: string | null;
+  prior_league: string | null;
   nhl_candidates: unknown;
   hints: unknown;
   detected_at: string;
@@ -39,30 +43,29 @@ interface StateRow {
   resolved_at: string | null;
 }
 
-/** Parse 'player_research:{seo}:{normName}' for display of orphaned state rows. */
+/** Parse 'roster_gap:{seo}:{normName}:{reason}' (or legacy 'player_research:{seo}:{norm}'). */
 function parseKey(key: string): { seo: string; norm: string } {
   const parts = key.split(':');
-  return { seo: parts[1] ?? '', norm: parts.slice(2).join(':') };
+  return { seo: parts[1] ?? '', norm: parts[2] ?? '' };
 }
 
 export async function GET() {
-  const [candsRes, statesRes, aliasesRes, suppsRes] = await Promise.all([
-    supabase
-      .from('research_candidates')
-      .select('*')
-      .order('priority', { ascending: true })
-      .order('player_name', { ascending: true }),
-    supabase.from('research_task_state').select('*'),
+  // Candidates exceed PostgREST's 1000-row cap (~1.7k live) — page through all.
+  const [candidates, states, aliasesRes, suppsRes] = await Promise.all([
+    fetchAll<CandidateRow>(
+      () =>
+        supabase
+          .from('research_candidates')
+          .select('*')
+          .order('priority', { ascending: true })
+          .order('player_name', { ascending: true }) as unknown as Rangeable<CandidateRow>,
+    ),
+    fetchAll<StateRow>(
+      () => supabase.from('research_task_state').select('*') as unknown as Rangeable<StateRow>,
+    ),
     supabase.from('player_aliases').select('*', { count: 'exact', head: true }),
     supabase.from('ncaa_suppressions').select('*', { count: 'exact', head: true }),
   ]);
-
-  if (candsRes.error) {
-    return Response.json({ error: candsRes.error.message }, { status: 500 });
-  }
-
-  const candidates = (candsRes.data ?? []) as CandidateRow[];
-  const states = (statesRes.data ?? []) as StateRow[];
   const stateByKey = new Map(states.map((s) => [s.dedup_key, s]));
 
   const items = candidates.map((c) => {
@@ -86,6 +89,9 @@ export async function GET() {
       source: '',
       position: null,
       class_year: null,
+      missing_fields: null,
+      prior_team: null,
+      prior_league: null,
       nhl_candidates: [],
       hints: {},
       detected_at: s.updated_at,
