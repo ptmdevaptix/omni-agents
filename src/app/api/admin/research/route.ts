@@ -51,7 +51,7 @@ function parseKey(key: string): { seo: string; norm: string } {
 
 export async function GET() {
   // Candidates exceed PostgREST's 1000-row cap (~1.7k live) — page through all.
-  const [candidates, states, aliasesRes, suppsRes] = await Promise.all([
+  const [candidates, states, bioOverrides, aliasesRes, suppsRes] = await Promise.all([
     fetchAll<CandidateRow>(
       () =>
         supabase
@@ -63,15 +63,28 @@ export async function GET() {
     fetchAll<StateRow>(
       () => supabase.from('research_task_state').select('*') as unknown as Rangeable<StateRow>,
     ),
+    fetchAll<Record<string, unknown>>(
+      () => supabase.from('player_bio_overrides').select('*') as unknown as Rangeable<Record<string, unknown>>,
+    ),
     supabase.from('player_aliases').select('*', { count: 'exact', head: true }),
     supabase.from('ncaa_suppressions').select('*', { count: 'exact', head: true }),
   ]);
   const stateByKey = new Map(states.map((s) => [s.dedup_key, s]));
 
+  // Saved bio overrides keyed by player_norm + seo (team-scoped) and a global
+  // (seo=null) fallback, so the resolve dialog can prefill what was saved.
+  const bioByKey = new Map<string, Record<string, unknown>>();
+  for (const o of bioOverrides) {
+    if (o.active === false) continue;
+    bioByKey.set(`${o.player_norm}::${o.seo ?? ''}`, o);
+  }
+  const bioFor = (norm: string, seo: string) =>
+    bioByKey.get(`${norm}::${seo}`) ?? bioByKey.get(`${norm}::`) ?? null;
+
   const items = candidates.map((c) => {
     const state = stateByKey.get(c.dedup_key) ?? null;
     stateByKey.delete(c.dedup_key);
-    return { ...c, state, orphaned: false };
+    return { ...c, state, bio_override: bioFor(c.norm_name, c.seo), orphaned: false };
   });
 
   // Remaining state rows have no candidate → auto-resolved upstream. Surface them.
@@ -96,6 +109,7 @@ export async function GET() {
       hints: {},
       detected_at: s.updated_at,
       state: s,
+      bio_override: null,
       orphaned: true,
     });
   }
