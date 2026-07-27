@@ -424,6 +424,97 @@ function NotesCell({ item, onSaved }: { item: Item; onSaved: () => void }) {
 }
 
 // ---- Overrides panel ----
+// ---- Add-alias dialog (standalone: alias one spelling to a canonical / NHL id) ----
+function AddAliasDialog({ onSaved }: { onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [aliasName, setAliasName] = useState('');
+  const [canonicalName, setCanonicalName] = useState('');
+  const [nhlId, setNhlId] = useState('');
+  const [seo, setSeo] = useState('');
+  const [note, setNote] = useState('');
+
+  function openDialog() {
+    setAliasName('');
+    setCanonicalName('');
+    setNhlId('');
+    setSeo('');
+    setNote('');
+    setError('');
+    setOpen(true);
+  }
+
+  async function submit() {
+    setSaving(true);
+    setError('');
+    const res = await fetch('/api/admin/research/overrides', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        table: 'player_aliases',
+        aliasName,
+        canonicalName: canonicalName || null,
+        nhlId: nhlId || null,
+        seo: seo || null,
+        note: note || null,
+      }),
+    });
+    if (res.ok) {
+      setOpen(false);
+      onSaved();
+    } else {
+      setError((await res.json()).error ?? 'Failed to add alias');
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button size="sm" variant="outline" onClick={openDialog}>Add alias</Button>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add player alias</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Map a spelling as it appears in our data (e.g. &ldquo;Benny Yurchuk&rdquo;) to a canonical
+          spelling and/or an NHL id, so both resolve to the same player. Scope to a team or leave
+          global.
+        </p>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Variant name (as in our data)</Label>
+            <Input value={aliasName} onChange={(e) => setAliasName(e.target.value)} placeholder="e.g. Benny Yurchuk" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Canonical spelling</Label>
+            <Input value={canonicalName} onChange={(e) => setCanonicalName(e.target.value)} placeholder="e.g. Ben Yurchuk" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">or NHL id</Label>
+            <Input value={nhlId} onChange={(e) => setNhlId(e.target.value)} placeholder="e.g. 8486099" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Team seo (optional — blank = global)</Label>
+            <Input value={seo} onChange={(e) => setSeo(e.target.value)} placeholder="e.g. penn-st" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Note</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional" />
+          </div>
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={submit} disabled={saving || !aliasName || (!canonicalName && !nhlId)}>
+              {saving ? 'Saving…' : 'Add alias'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OverridesPanel() {
   const [aliases, setAliases] = useState<AliasRow[]>([]);
   const [suppressions, setSuppressions] = useState<SuppressionRow[]>([]);
@@ -448,7 +539,10 @@ function OverridesPanel() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-sm font-semibold mb-2">Player aliases ({aliases.length})</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold">Player aliases ({aliases.length})</h2>
+          <AddAliasDialog onSaved={load} />
+        </div>
         <Card>
           <CardContent className="p-0">
             <Table>
