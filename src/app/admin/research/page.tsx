@@ -115,22 +115,45 @@ function effectiveStatus(item: Item): string {
 }
 
 // ---- Resolve dialog ----
+type ResolveMode = 'bio' | 'alias' | 'suppress' | 'note';
+const MODE_LABEL: Record<ResolveMode, string> = {
+  bio: 'Fill bio',
+  alias: 'Link',
+  suppress: 'Remove from roster',
+  note: 'Note',
+};
+
 function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'alias' | 'suppress' | 'note'>('alias');
+  const [mode, setMode] = useState<ResolveMode>('bio');
 
   const [nhlId, setNhlId] = useState('');
   const [canonicalName, setCanonicalName] = useState('');
   const [note, setNote] = useState('');
+  // bio fields
+  const [position, setPosition] = useState('');
+  const [heightInches, setHeightInches] = useState('');
+  const [weightLbs, setWeightLbs] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [hometown, setHometown] = useState('');
+  const [originCountry, setOriginCountry] = useState('');
+
+  const missing = item.missing_fields ?? [];
 
   function openDialog() {
-    // missing_data ⇒ usually a bio re-pull (note); no_player_page ⇒ link (alias).
-    setMode(item.reason === 'missing_data' ? 'note' : 'alias');
+    // missing_data ⇒ fill the gaps; no_player_page ⇒ link to an NHL id.
+    setMode(item.reason === 'missing_data' ? 'bio' : 'alias');
     setNhlId('');
     setCanonicalName('');
     setNote('');
+    setPosition(item.position ?? '');
+    setHeightInches('');
+    setWeightLbs('');
+    setBirthDate('');
+    setHometown('');
+    setOriginCountry('');
     setError('');
     setOpen(true);
   }
@@ -145,9 +168,19 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
       payload.nhlId = nhlId || null;
       payload.canonicalName = canonicalName || null;
       payload.note = `Resolved from research queue (${item.reason})`;
+    } else if (mode === 'bio') {
+      payload.playerNorm = item.norm_name;
+      payload.seo = item.seo;
+      payload.position = position || undefined;
+      payload.heightInches = heightInches ? Number(heightInches) : undefined;
+      payload.weightLbs = weightLbs ? Number(weightLbs) : undefined;
+      payload.birthDate = birthDate || undefined;
+      payload.hometown = hometown || undefined;
+      payload.originCountry = originCountry || undefined;
     } else if (mode === 'suppress') {
       payload.seo = item.seo;
       payload.playerNorm = item.norm_name;
+      payload.playerName = item.player_name;
       payload.reason = note || 'Not attending / left (research queue)';
     } else {
       payload.note = note || null;
@@ -166,6 +199,9 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     setSaving(false);
   }
 
+  const fieldHint = (f: string) =>
+    missing.includes(f) ? <span className="text-amber-500"> (missing)</span> : null;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button size="sm" onClick={openDialog}>
@@ -179,8 +215,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-1">
-          {(['alias', 'suppress', 'note'] as const).map((m) => (
+        <div className="flex gap-1 flex-wrap">
+          {(['bio', 'alias', 'suppress', 'note'] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -189,10 +225,53 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
                 mode === m ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {m === 'alias' ? 'Link (alias)' : m === 'suppress' ? 'Suppress' : 'Note only'}
+              {MODE_LABEL[m]}
             </button>
           ))}
         </div>
+
+        {mode === 'bio' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Writes <code>player_bio_overrides</code> (player_norm=<code>{item.norm_name}</code>, seo=
+              <code>{item.seo}</code>). Only filled fields are written; they win over resolved data.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Position{fieldHint('position')}</Label>
+                <Select value={position || 'none'} onValueChange={(v) => setPosition(v === 'none' ? '' : v ?? '')}>
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">—</SelectItem>
+                    <SelectItem value="F">F</SelectItem>
+                    <SelectItem value="D">D</SelectItem>
+                    <SelectItem value="G">G</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="bd" className="text-xs">Birthdate{fieldHint('birthdate')}</Label>
+                <Input id="bd" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ht" className="text-xs">Height (inches){fieldHint('height')}</Label>
+                <Input id="ht" type="number" value={heightInches} onChange={(e) => setHeightInches(e.target.value)} placeholder="e.g. 72" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="wt" className="text-xs">Weight (lbs){fieldHint('weight')}</Label>
+                <Input id="wt" type="number" value={weightLbs} onChange={(e) => setWeightLbs(e.target.value)} placeholder="e.g. 190" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="hometown" className="text-xs">Hometown{fieldHint('hometown')}</Label>
+                <Input id="hometown" value={hometown} onChange={(e) => setHometown(e.target.value)} placeholder="City, ST/Prov." />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="country" className="text-xs">Country</Label>
+                <Input id="country" value={originCountry} onChange={(e) => setOriginCountry(e.target.value)} placeholder="e.g. Canada" />
+              </div>
+            </div>
+          </div>
+        )}
 
         {mode === 'alias' && (
           <div className="space-y-3">
@@ -201,7 +280,7 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
               <code>{item.seo}</code>). NHL id is most robust; otherwise a canonical spelling that
               resolves at NHL/EP.
             </p>
-            {item.reason === 'ambiguous' && item.nhl_candidates.length > 0 && (
+            {item.nhl_candidates.length > 0 && (
               <div className="space-y-1">
                 <Label className="text-xs">Pick the NHL candidate</Label>
                 <div className="rounded-md border divide-y">
@@ -236,8 +315,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
               Writes <code>ncaa_suppressions</code> (seo=<code>{item.seo}</code>, player_norm=
-              <code>{item.norm_name}</code>) — hides the player from roster + Changes (e.g. not
-              attending, signed pro).
+              <code>{item.norm_name}</code>) — removes the player from this team&apos;s roster + Changes,
+              and flags any matching incoming move as suppressed.
             </p>
             <div className="space-y-1">
               <Label htmlFor="supreason" className="text-xs">Reason</Label>
