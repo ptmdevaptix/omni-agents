@@ -545,7 +545,7 @@ export default function ResearchPage() {
                       <TableHead>Reason</TableHead>
                       <TableHead>Player</TableHead>
                       <TableHead>Team</TableHead>
-                      <TableHead>Prior team</TableHead>
+                      <TableHead className="w-[140px]">Prior team</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Notes</TableHead>
@@ -583,7 +583,10 @@ export default function ResearchPage() {
                           </TableCell>
                           <TableCell>
                             {item.prior_team ? (
-                              <div className="text-sm">
+                              <div
+                                className="text-sm truncate max-w-[140px]"
+                                title={`${item.prior_team}${item.prior_league ? ` (${item.prior_league})` : ''}`}
+                              >
                                 {item.prior_team}
                                 {item.prior_league && (
                                   <span className="text-muted-foreground"> ({item.prior_league})</span>
