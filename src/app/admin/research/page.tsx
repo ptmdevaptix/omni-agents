@@ -115,10 +115,11 @@ function effectiveStatus(item: Item): string {
 }
 
 // ---- Resolve dialog ----
-type ResolveMode = 'bio' | 'alias' | 'suppress' | 'note';
+type ResolveMode = 'bio' | 'alias' | 'merge' | 'suppress' | 'note';
 const MODE_LABEL: Record<ResolveMode, string> = {
   bio: 'Fill bio',
   alias: 'Link',
+  merge: 'Merge duplicate',
   suppress: 'Remove from roster',
   note: 'Note',
 };
@@ -140,6 +141,10 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
   const [birthDate, setBirthDate] = useState('');
   const [hometown, setHometown] = useState('');
   const [originCountry, setOriginCountry] = useState('');
+  const [priorTeam, setPriorTeam] = useState('');
+  const [priorLeague, setPriorLeague] = useState('');
+  // merge-duplicate field
+  const [mergeName, setMergeName] = useState('');
 
   const missing = item.missing_fields ?? [];
 
@@ -156,6 +161,9 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     setBirthDate('');
     setHometown('');
     setOriginCountry('');
+    setPriorTeam(item.prior_team ?? '');
+    setPriorLeague(item.prior_league ?? '');
+    setMergeName('');
     setError('');
     setOpen(true);
   }
@@ -170,6 +178,14 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
       payload.nhlId = nhlId || null;
       payload.canonicalName = canonicalName || null;
       payload.note = `Resolved from research queue (${item.reason})`;
+    } else if (mode === 'merge') {
+      // A DIFFERENT/duplicate spelling that's actually THIS player → alias it in.
+      payload.kind = 'alias';
+      payload.aliasName = mergeName;
+      payload.seo = item.seo;
+      payload.canonicalName = item.player_name;
+      payload.nhlId = nhlId || null;
+      payload.note = `Merged duplicate into ${item.player_name} (research queue)`;
     } else if (mode === 'bio') {
       payload.playerNorm = item.norm_name;
       payload.seo = item.seo;
@@ -180,6 +196,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
       payload.birthDate = birthDate || undefined;
       payload.hometown = hometown || undefined;
       payload.originCountry = originCountry || undefined;
+      payload.priorTeam = priorTeam || undefined;
+      payload.priorLeague = priorLeague || undefined;
     } else if (mode === 'suppress') {
       payload.seo = item.seo;
       payload.playerNorm = item.norm_name;
@@ -219,7 +237,7 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
         </DialogHeader>
 
         <div className="flex gap-1 flex-wrap">
-          {(['bio', 'alias', 'suppress', 'note'] as const).map((m) => (
+          {(['bio', 'alias', 'merge', 'suppress', 'note'] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -286,7 +304,19 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
                 <Label htmlFor="country" className="text-xs">Country</Label>
                 <Input id="country" value={originCountry} onChange={(e) => setOriginCountry(e.target.value)} placeholder="e.g. Canada" />
               </div>
+              <div className="space-y-1">
+                <Label htmlFor="priorteam" className="text-xs">Prior team</Label>
+                <Input id="priorteam" value={priorTeam} onChange={(e) => setPriorTeam(e.target.value)} placeholder="e.g. Denver / Kitchener Rangers" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="priorleague" className="text-xs">Prior league</Label>
+                <Input id="priorleague" value={priorLeague} onChange={(e) => setPriorLeague(e.target.value)} placeholder="e.g. NCHC / BCHL / OHL" />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Prior team links automatically if it&apos;s a team we know (NCAA / CHL / junior in
+              our DB); unknown teams (BCHL, Euro, etc.) are kept as text.
+            </p>
           </div>
         )}
 
@@ -324,6 +354,24 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
             <div className="space-y-1">
               <Label htmlFor="canon" className="text-xs">or canonical spelling</Label>
               <Input id="canon" value={canonicalName} onChange={(e) => setCanonicalName(e.target.value)} placeholder="e.g. Yegor Shilov" />
+            </div>
+          </div>
+        )}
+
+        {mode === 'merge' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              A different/duplicate spelling that&apos;s actually <strong>{item.player_name}</strong>.
+              We&apos;ll alias it to this player (writes <code>player_aliases</code>, canonical=
+              <code>{item.player_name}</code>). Add this player&apos;s NHL id too if you know it.
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="mergename" className="text-xs">Duplicate spelling (as it appears elsewhere)</Label>
+              <Input id="mergename" value={mergeName} onChange={(e) => setMergeName(e.target.value)} placeholder="e.g. Benny Yurchuk" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mergenhl" className="text-xs">This player&apos;s NHL id (optional)</Label>
+              <Input id="mergenhl" value={nhlId} onChange={(e) => setNhlId(e.target.value)} placeholder="e.g. 8486099" />
             </div>
           </div>
         )}

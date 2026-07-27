@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { fetchAll, type Rangeable } from '@/lib/roster-moves/db';
+import { resolveAnyTeam } from '@/lib/roster-moves/resolve';
 
 /**
  * Resolve a research item: write the durable override that applies the fix
@@ -37,10 +38,13 @@ export async function POST(request: NextRequest) {
   let resolution: Record<string, unknown>;
 
   if (kind === 'alias') {
-    const { aliasNorm, seo, nhlId, canonicalName, note } = body;
+    const { seo, nhlId, canonicalName, note } = body;
+    // aliasNorm can be given explicitly (this item's own spelling) or as a typed
+    // aliasName (a DIFFERENT/duplicate spelling to merge into this player).
+    const aliasNorm = body.aliasNorm || (body.aliasName ? hockeyNorm(body.aliasName) : '');
     if (!aliasNorm || (!nhlId && !canonicalName)) {
       return Response.json(
-        { error: 'alias needs aliasNorm and one of nhlId / canonicalName' },
+        { error: 'alias needs a spelling and one of nhlId / canonicalName' },
         { status: 400 },
       );
     }
@@ -77,6 +81,8 @@ export async function POST(request: NextRequest) {
       birthDate: 'birth_date',
       hometown: 'hometown',
       originCountry: 'origin_country',
+      priorTeam: 'prior_team',
+      priorLeague: 'prior_league',
       nhlId: 'nhl_id',
       note: 'note',
     };
@@ -87,19 +93,36 @@ export async function POST(request: NextRequest) {
         fields[col] = body[k];
       }
     }
-    let { error } = await supabase
-      .from('player_bio_overrides')
-      .upsert(row, { onConflict: 'player_norm,seo' });
-    // Cutover resilience: if class_year isn't a column yet, drop it and retry so
-    // the other bio fields still save (class_year lands once omni-hockey adds it).
-    let classYearDropped = false;
-    if (error && /class_year/.test(error.message) && 'class_year' in row) {
-      delete row.class_year;
-      delete fields.class_year;
-      classYearDropped = true;
-      ({ error } = await supabase
-        .from('player_bio_overrides')
-        .upsert(row, { onConflict: 'player_norm,seo' }));
+    // Best-effort: if the prior team is one we know (NCAA or CHL/junior in our
+    // DB), link it; unknown teams (BCHL/Euro) stay as free text only.
+    let priorTeamMatch: string | null = null;
+    if (typeof body.priorTeam === 'string' && body.priorTeam.trim()) {
+      const t = await resolveAnyTeam(body.priorTeam);
+      if (t) {
+        row.prior_team_id = t.teamId;
+        fields.prior_team_id = t.teamId;
+        priorTeamMatch = t.placeName;
+      }
+    }
+
+    // Cutover resilience: player_bio_overrides may not have every column yet
+    // (class_year / prior_team*). Drop whichever column the DB reports missing
+    // and retry, so the remaining fields still save.
+    const missingColumn = (msg: string): string | null => {
+      const m1 = msg.match(/Could not find the '([a-z_]+)' column/i);
+      if (m1) return m1[1];
+      const m2 = msg.match(/column ["']?[a-z_]*\.?([a-z_]+)["']? does not exist/i);
+      return m2 ? m2[1] : null;
+    };
+    const deferred: string[] = [];
+    let error = (await supabase.from('player_bio_overrides').upsert(row, { onConflict: 'player_norm,seo' })).error;
+    for (let i = 0; error && i < 6; i++) {
+      const col = missingColumn(error.message);
+      if (!col || !(col in row)) break;
+      delete row[col];
+      delete fields[col];
+      deferred.push(col);
+      error = (await supabase.from('player_bio_overrides').upsert(row, { onConflict: 'player_norm,seo' })).error;
     }
     if (error) {
       return Response.json(
@@ -107,7 +130,14 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    resolution = { type: 'bio', player_norm: playerNorm, seo: seo || null, fields, ...(classYearDropped && { class_year_deferred: true }) };
+    resolution = {
+      type: 'bio',
+      player_norm: playerNorm,
+      seo: seo || null,
+      fields,
+      ...(priorTeamMatch && { prior_team_matched: priorTeamMatch }),
+      ...(deferred.length > 0 && { deferred_columns: deferred }),
+    };
   } else if (kind === 'suppress') {
     const { seo, playerNorm, playerName, reason } = body;
     if (!seo || !playerNorm) {

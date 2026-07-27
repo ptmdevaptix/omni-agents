@@ -232,8 +232,73 @@ export async function resolvePlayerId(
   return match ? match.id : null;
 }
 
+// ---- All-league team resolution (for prior-team linking) ----
+interface AnyTeamRow {
+  id: string;
+  place_name: string;
+  nickname: string;
+  abbreviation: string;
+  league: string;
+}
+let anyTeamIndexCache: Map<string, string | typeof AMBIGUOUS> | null = null;
+let anyTeamById: Map<string, AnyTeamRow> | null = null;
+
+async function loadAnyTeamIndex(): Promise<Map<string, string | typeof AMBIGUOUS>> {
+  if (anyTeamIndexCache) return anyTeamIndexCache;
+  const rows = await fetchAll<AnyTeamRow>(
+    () =>
+      supabase
+        .from('teams')
+        .select('id, place_name, nickname, abbreviation, league') as unknown as Rangeable<AnyTeamRow>,
+  );
+  const idx = new Map<string, string | typeof AMBIGUOUS>();
+  anyTeamById = new Map(rows.map((r) => [r.id, r]));
+  const add = (sig: string, id: string) => {
+    if (!sig) return;
+    const cur = idx.get(sig);
+    if (cur === undefined) idx.set(sig, id);
+    else if (cur !== id) idx.set(sig, AMBIGUOUS);
+  };
+  for (const t of rows) {
+    add(signature(t.place_name), t.id);
+    add(signature(`${t.place_name} ${t.nickname}`), t.id);
+    add(signature(t.abbreviation), t.id);
+  }
+  anyTeamIndexCache = idx;
+  return idx;
+}
+
+export interface ResolvedAnyTeam {
+  teamId: string;
+  league: string;
+  placeName: string;
+}
+
+/**
+ * Resolve a team name across ALL leagues (NCAA transfers, CHL/junior teams we
+ * have) to a team we know — for prior-team linking. Unambiguous exact
+ * signature match only; returns null for unknown teams (BCHL/Euro/etc.), which
+ * are then kept as free text.
+ */
+export async function resolveAnyTeam(
+  name: string | null | undefined,
+): Promise<ResolvedAnyTeam | null> {
+  if (!name || !name.trim()) return null;
+  const idx = await loadAnyTeamIndex();
+  for (const sig of inputSignatures(name)) {
+    const hit = idx.get(sig);
+    if (hit && hit !== AMBIGUOUS && anyTeamById) {
+      const row = anyTeamById.get(hit);
+      if (row) return { teamId: row.id, league: row.league, placeName: row.place_name };
+    }
+  }
+  return null;
+}
+
 /** Reset caches (tests / long-lived processes). */
 export function resetResolveCaches(): void {
   ncaaIndexCache = null;
   playersCache = null;
+  anyTeamIndexCache = null;
+  anyTeamById = null;
 }
