@@ -43,6 +43,17 @@ interface TaskState {
   resolution: unknown;
   resolved_at: string | null;
 }
+interface BioOverride {
+  position?: string | null;
+  class_year?: number | null;
+  height_inches?: number | null;
+  weight_lbs?: number | null;
+  birth_date?: string | null;
+  hometown?: string | null;
+  origin_country?: string | null;
+  prior_team?: string | null;
+  prior_league?: string | null;
+}
 interface Item {
   dedup_key: string;
   reason: string;
@@ -62,6 +73,7 @@ interface Item {
   hints: Record<string, unknown>;
   detected_at: string;
   state: TaskState | null;
+  bio_override: BioOverride | null;
   orphaned: boolean;
 }
 interface AliasRow {
@@ -154,15 +166,19 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     setNhlId('');
     setCanonicalName('');
     setNote('');
-    setPosition(item.position ?? '');
-    setClassYear(item.class_year ? String(item.class_year) : '');
-    setHeightInches('');
-    setWeightLbs('');
-    setBirthDate('');
-    setHometown('');
-    setOriginCountry('');
-    setPriorTeam(item.prior_team ?? '');
-    setPriorLeague(item.prior_league ?? '');
+    // Prefill bio fields from a previously-saved override, falling back to the
+    // candidate's own values (so partial saves are visible on reopen).
+    const ov = item.bio_override;
+    const num = (v: number | null | undefined) => (v != null ? String(v) : '');
+    setPosition(ov?.position ?? item.position ?? '');
+    setClassYear(num(ov?.class_year) || (item.class_year ? String(item.class_year) : ''));
+    setHeightInches(num(ov?.height_inches));
+    setWeightLbs(num(ov?.weight_lbs));
+    setBirthDate(ov?.birth_date ?? '');
+    setHometown(ov?.hometown ?? '');
+    setOriginCountry(ov?.origin_country ?? '');
+    setPriorTeam(ov?.prior_team ?? item.prior_team ?? '');
+    setPriorLeague(ov?.prior_league ?? item.prior_league ?? '');
     setMergeName('');
     setError('');
     setOpen(true);
