@@ -513,6 +513,7 @@ export default function ResearchPage() {
 
   const [reasonFilter, setReasonFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('open');
+  const [teamFilter, setTeamFilter] = useState('all');
   const [seosearch, setSeoSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -535,9 +536,21 @@ export default function ResearchPage() {
     load();
   }
 
+  // Distinct teams present in the feed, labeled by team_name when available.
+  const teamOptions = useMemo(() => {
+    const bySeo = new Map<string, string>();
+    for (const i of items) {
+      if (i.seo && !bySeo.has(i.seo)) bySeo.set(i.seo, i.team_name || i.seo);
+    }
+    return [...bySeo.entries()]
+      .map(([seo, label]) => ({ seo, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [items]);
+
   const filtered = useMemo(() => {
     return items.filter((i) => {
       if (reasonFilter !== 'all' && i.reason !== reasonFilter) return false;
+      if (teamFilter !== 'all' && i.seo !== teamFilter) return false;
       const st = effectiveStatus(i);
       if (statusFilter === 'open' && !['open', 'in_progress'].includes(st)) return false;
       if (statusFilter !== 'all' && statusFilter !== 'open' && st !== statusFilter) return false;
@@ -545,7 +558,7 @@ export default function ResearchPage() {
           !i.player_name.toLowerCase().includes(seosearch.toLowerCase())) return false;
       return true;
     });
-  }, [items, reasonFilter, statusFilter, seosearch]);
+  }, [items, reasonFilter, teamFilter, statusFilter, seosearch]);
 
   const RENDER_CAP = 300;
   const visible = filtered.slice(0, RENDER_CAP);
@@ -608,9 +621,21 @@ export default function ResearchPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Team</Label>
+                <Select value={teamFilter} onValueChange={(v) => setTeamFilter(v ?? 'all')}>
+                  <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All teams</SelectItem>
+                    {teamOptions.map((t) => (
+                      <SelectItem key={t.seo} value={t.seo}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1 flex-1 min-w-48">
-                <Label className="text-xs">Search (team seo / player)</Label>
-                <Input value={seosearch} onChange={(e) => setSeoSearch(e.target.value)} placeholder="e.g. penn-st" />
+                <Label className="text-xs">Search (player)</Label>
+                <Input value={seosearch} onChange={(e) => setSeoSearch(e.target.value)} placeholder="name…" />
               </div>
               <Button variant="ghost" size="sm" onClick={load}>Refresh</Button>
             </div>
@@ -644,11 +669,12 @@ export default function ResearchPage() {
                           <TableCell className="text-muted-foreground">{item.priority}</TableCell>
                           <TableCell><ReasonBadge reason={item.reason} /></TableCell>
                           <TableCell>
-                            <div className="font-medium">{item.player_name}</div>
-                            {(item.position || item.class_year) && (
-                              <div className="text-xs text-muted-foreground">
-                                {[item.position, item.class_year ? `Yr ${item.class_year}` : null].filter(Boolean).join(' · ')}
-                              </div>
+                            <div className="font-medium">
+                              {item.player_name}
+                              {item.position ? ` (${item.position})` : ''}
+                            </div>
+                            {item.class_year && (
+                              <div className="text-xs text-muted-foreground">Yr {item.class_year}</div>
                             )}
                             {item.reason === 'missing_data' && item.missing_fields && item.missing_fields.length > 0 && (
                               <div className="text-xs text-amber-500 mt-0.5">
