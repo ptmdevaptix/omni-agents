@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, type ComponentType } from 'react';
+import { Ruler, Weight, Cake, MapPin, User, HelpCircle } from 'lucide-react';
 import { AppNav } from '@/components/app-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,31 @@ const REASON_LABEL: Record<string, string> = {
   no_player_page: 'No player page',
   resolved_upstream: 'Resolved upstream',
 };
+
+const MISSING_META: Record<string, { Icon: ComponentType<{ className?: string }>; label: string }> = {
+  position: { Icon: User, label: 'Position' },
+  height: { Icon: Ruler, label: 'Height' },
+  weight: { Icon: Weight, label: 'Weight' },
+  birthdate: { Icon: Cake, label: 'Birthdate' },
+  age: { Icon: Cake, label: 'Age / birthdate' },
+  hometown: { Icon: MapPin, label: 'Hometown' },
+};
+
+function MissingIcons({ fields }: { fields: string[] }) {
+  return (
+    <div className="flex items-center gap-1 mt-1 text-amber-500">
+      {fields.map((f) => {
+        const meta = MISSING_META[f];
+        const Icon = meta?.Icon ?? HelpCircle;
+        return (
+          <span key={f} title={`Missing: ${meta?.label ?? f}`} className="inline-flex">
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 function ReasonBadge({ reason }: { reason: string }) {
   const cls: Record<string, string> = {
@@ -872,9 +898,7 @@ export default function ResearchPage() {
                               <div className="text-xs text-muted-foreground">Yr {item.class_year}</div>
                             )}
                             {item.reason === 'missing_data' && item.missing_fields && item.missing_fields.length > 0 && (
-                              <div className="text-xs text-amber-500 mt-0.5">
-                                missing: {item.missing_fields.join(', ')}
-                              </div>
+                              <MissingIcons fields={item.missing_fields} />
                             )}
                           </TableCell>
                           <TableCell>
