@@ -35,6 +35,7 @@ Rules that ALWAYS apply:
 - Cut filler and obvious statements. Do NOT write that a new season is a "clean slate," that a team is "starting fresh," that records/standings/series "reset" or "don''t carry over" year to year, that teams sit at "0-0-0," or that teams "want to win" — fans already know this. Lead with substance every sentence.
 - Never mention TV networks, broadcasters, or where/how to watch — availability varies by region.
 - Do not repeat a fact you have already stated (the head-to-head series, a team''s record, etc.) in a later paragraph. Make each point once.
+- Stay measured — avoid hyperbole and overstatement. Skip inflated framing like "dominant," "thoroughly outclassed," "dramatic," "statement game," "as dangerous as any," or "engine that drove." State what the facts show plainly and let them carry the weight; understatement reads as more credible than hype.
 - Voice: confident, economical, and natural — not breathless or promotional. Do not put a headline inside the body; a title is added separately.'),
 ('game_preview.opener', 'Game preview — season opener',
 'Task: write a season-OPENER game preview.
