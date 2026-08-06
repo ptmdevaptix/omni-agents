@@ -5,6 +5,7 @@ import { AppNav } from '@/components/app-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -74,21 +75,61 @@ async function patchStatus(ids: number[], status: string) {
   });
 }
 
-function ViewDialog({ item, onChanged }: { item: ContentItem; onChanged: () => void }) {
+/** Save reviewer edits (and optionally transition status) for one item. */
+async function saveEdits(
+  id: number,
+  fields: { title: string | null; summary: string | null; body: string },
+  status?: string,
+) {
+  await fetch('/api/admin/content', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, ...fields, ...(status ? { status } : {}) }),
+  });
+}
+
+function ReviewDialog({ item, onChanged }: { item: ContentItem; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
-  async function act(status: string) {
-    await patchStatus([item.id], status);
+  const [title, setTitle] = useState(item.title ?? '');
+  const [summary, setSummary] = useState(item.summary ?? '');
+  const [body, setBody] = useState(item.body);
+  const [saving, setSaving] = useState(false);
+
+  // Re-seed the fields whenever the dialog opens or the underlying item changes.
+  useEffect(() => {
+    if (open) {
+      setTitle(item.title ?? '');
+      setSummary(item.summary ?? '');
+      setBody(item.body);
+    }
+  }, [open, item.title, item.summary, item.body]);
+
+  const dirty =
+    title !== (item.title ?? '') || summary !== (item.summary ?? '') || body !== item.body;
+
+  async function act(status?: string) {
+    setSaving(true);
+    const fields = { title: title.trim() || null, summary: summary.trim() || null, body };
+    // If text changed (or a status transition is requested), persist via PUT so
+    // edits and the status change land together; otherwise a plain status PATCH.
+    if (dirty || status) await saveEdits(item.id, fields, status);
+    setSaving(false);
     setOpen(false);
     onChanged();
   }
+
+  const textarea =
+    'w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm leading-relaxed outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>View</Button>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>View / edit</Button>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {item.title ?? `${item.subject_type} ${item.subject_id}`}
+            Review
             <StatusBadge status={item.status} />
+            {dirty && <span className="text-xs font-normal text-amber-600">unsaved edits</span>}
           </DialogTitle>
         </DialogHeader>
         <div className="text-xs text-muted-foreground">
@@ -96,14 +137,25 @@ function ViewDialog({ item, onChanged }: { item: ContentItem; onChanged: () => v
           {item.league ? ` · ${item.league}` : ''} · {item.model ?? 'model n/a'} · v{item.version} ·{' '}
           {new Date(item.generated_at).toLocaleString()}
         </div>
-        {item.summary && <p className="text-sm font-medium">{item.summary}</p>}
-        <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-md border p-3 text-sm leading-relaxed">
-          {item.body}
+        <div className="space-y-3 overflow-y-auto max-h-[60vh] pr-1">
+          <div className="space-y-1">
+            <Label className="text-xs">Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Summary</Label>
+            <textarea className={textarea} rows={2} value={summary} onChange={(e) => setSummary(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Body</Label>
+            <textarea className={textarea} rows={14} value={body} onChange={(e) => setBody(e.target.value)} />
+          </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => act('rejected')}>Reject</Button>
-          <Button variant="outline" onClick={() => act('reviewed')}>Mark reviewed</Button>
-          <Button onClick={() => act('approved')}>Approve</Button>
+          <Button variant="ghost" onClick={() => act('rejected')} disabled={saving}>Reject</Button>
+          <Button variant="outline" onClick={() => act()} disabled={saving || !dirty}>Save</Button>
+          <Button variant="outline" onClick={() => act('reviewed')} disabled={saving}>Save &amp; mark reviewed</Button>
+          <Button onClick={() => act('approved')} disabled={saving}>Save &amp; approve</Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -269,7 +321,7 @@ export default function ContentPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-1 justify-end items-center">
-                          <ViewDialog item={item} onChanged={load} />
+                          <ReviewDialog item={item} onChanged={load} />
                           {item.status !== 'approved' && (
                             <Button size="sm" variant="ghost" onClick={() => rowAct(item.id, 'approved')}>Approve</Button>
                           )}
