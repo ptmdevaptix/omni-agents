@@ -141,7 +141,7 @@ function ReviewPanel({
         </Button>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
         <div className="space-y-1">
           <Label className="text-xs">Title</Label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -150,10 +150,10 @@ function ReviewPanel({
           <Label className="text-xs">Summary</Label>
           <textarea className={textarea} rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
         </div>
-        <div className="space-y-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-1">
           <Label className="text-xs">Body</Label>
           <textarea
-            className={cn(textarea, 'min-h-[40vh]')}
+            className={cn(textarea, 'min-h-0 flex-1 resize-none')}
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
