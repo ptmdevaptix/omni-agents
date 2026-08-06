@@ -100,7 +100,11 @@ function playoffResult(games: SchedGame[], abbr: string): string {
   const roundName = ROUND_NAME[roundsReached] ?? `round ${roundsReached}`;
 
   if (wonLast && roundsReached >= 4) return 'won the Stanley Cup';
-  return `were eliminated in ${roundName}`;
+
+  // Didn't win the Cup → they lost their last series. Name who eliminated them
+  // and the series length (games), per the caller's requirement.
+  const oppSide = lastGames[0].homeTeam.abbrev === abbr ? lastGames[0].awayTeam : lastGames[0].homeTeam;
+  return `were eliminated by the ${teamName(oppSide)} in ${lastGames.length} games in ${roundName}`;
 }
 
 // ---- Key players (last-season leaders still on the current roster) ----
