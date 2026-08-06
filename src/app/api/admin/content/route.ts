@@ -51,6 +51,56 @@ export async function GET() {
 
 const REVIEWED_STATES = new Set(['reviewed', 'approved', 'rejected']);
 
+/**
+ * PUT → save reviewer edits to a single item's text (title/summary/body) and,
+ * optionally, transition its status in the same call ("save & approve"). Any of
+ * the three text fields may be omitted to leave it unchanged.
+ */
+export async function PUT(request: NextRequest) {
+  const body = await request.json();
+  const {
+    id,
+    title,
+    summary,
+    body: text,
+    status,
+    reviewer,
+  } = body as {
+    id?: number;
+    title?: string | null;
+    summary?: string | null;
+    body?: string;
+    status?: string;
+    reviewer?: string;
+  };
+  if (typeof id !== 'number') {
+    return Response.json({ error: 'id required' }, { status: 400 });
+  }
+  if (status !== undefined && !['new', 'reviewed', 'approved', 'rejected'].includes(status)) {
+    return Response.json({ error: `invalid status "${status}"` }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (title !== undefined) patch.title = title || null;
+  if (summary !== undefined) patch.summary = summary || null;
+  if (text !== undefined) patch.body = text;
+  if (status !== undefined) {
+    patch.status = status;
+    if (REVIEWED_STATES.has(status)) {
+      patch.reviewed_at = now;
+      if (reviewer !== undefined) patch.reviewer = reviewer || null;
+    } else {
+      patch.reviewed_at = null;
+      patch.reviewer = null;
+    }
+  }
+
+  const { error } = await supabase.from('generated_content').update(patch).eq('id', id);
+  if (error) return Response.json({ error: error.message }, { status: 400 });
+  return Response.json({ success: true });
+}
+
 export async function PATCH(request: NextRequest) {
   const body = await request.json();
   const { ids, status, reviewer, notes } = body as {
