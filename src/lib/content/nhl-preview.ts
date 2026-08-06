@@ -192,8 +192,28 @@ function fmtNewcomer(n: Newcomer): string {
   return `${n.name} (${n.pos})${q.length ? ` — ${q.join(', ')}` : ''}`;
 }
 
-// ---- Recent draft (high picks who may step straight to the NHL) ----
-interface DraftPick { overall: number; team: string; name: string; pos: string; club?: string; league?: string; }
+// ---- Recent draft (high picks) + signing status from capspace ----
+interface DraftPick { overall: number; team: string; name: string; pos: string; club?: string; league?: string; signed?: boolean; aav?: string; }
+
+const capNorm = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+interface CapPlayer { name?: string; signed?: boolean; aavLabel?: string }
+
+/** Signing status per player from cached capspace-org data (whether a pick is on an NHL ELC). */
+async function capspaceSigned(teamAbbr: string): Promise<Map<string, CapPlayer>> {
+  try {
+    const { data } = await supabase
+      .from('api_cache')
+      .select('data')
+      .eq('key', `capspace-org-${teamAbbr.toLowerCase()}`)
+      .maybeSingle();
+    const players = ((data?.data as { players?: CapPlayer[] } | null)?.players) ?? [];
+    return new Map(players.filter((p) => p.name).map((p) => [capNorm(p.name!), p]));
+  } catch {
+    return new Map();
+  }
+}
 
 const strOrDefault = (v: unknown): string | undefined =>
   typeof v === 'string' ? v : (v as { default?: string })?.default;
@@ -223,9 +243,23 @@ async function topDraftPicks(draftYear: string, teams: Set<string>, maxOverall =
   }
 }
 
+// Signed non-Euro (CHL/NCAA/US-junior) picks can't be assigned to the AHL and
+// can't return to junior/college — NHL debut expected. Signed Euro picks may
+// open in the AHL. Unsigned picks aren't assumed to play. Computed here (not by
+// the model) so the fact states the conclusion directly.
+const EURO_LEAGUES = /SHL|LIIGA|KHL|MHL|VHL|ALLSVENSKAN|NL$|DEL|EXTRALIGA|CZECH|SWISS|INTERNATIONAL|EURO/i;
+
 function fmtPick(p: DraftPick): string {
   const from = p.club ? `, from ${p.club}${p.league ? ` (${p.league})` : ''}` : '';
-  return `${p.name} (${ordinal(p.overall)} overall${p.pos ? `, ${p.pos}` : ''}${from})`;
+  let note: string;
+  if (p.signed !== true) {
+    note = 'NOT signed to an NHL contract — do not assume an NHL debut; unsigned picks usually return to junior, college, or their European club';
+  } else if (p.league && EURO_LEAGUES.test(p.league)) {
+    note = `signed to an NHL entry-level contract${p.aav ? ` (${p.aav} AAV)` : ''}; coming from Europe he could open in the AHL, so an NHL debut is likely but not certain`;
+  } else {
+    note = `signed to an NHL entry-level contract${p.aav ? ` (${p.aav} AAV)` : ''}; as a North American junior/college player he cannot be assigned to the AHL or return to junior/college, so his NHL debut is expected barring injury or a healthy scratch`;
+  }
+  return `${p.name} (${ordinal(p.overall)} overall${p.pos ? `, ${p.pos}` : ''}${from}) — ${note}`;
 }
 
 export interface TeamContext {
@@ -346,17 +380,28 @@ export async function buildOpenerContext(
   const homeAbbr = opener.homeTeam.abbrev;
   const awayAbbr = opener.awayTeam.abbrev;
   const draftYear = upcomingSeason.slice(0, 4); // 2026-27 season ⇒ 2026 draft
-  const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx, draftPicks] = await Promise.all([
+  const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx, draftPicks, homeCap, awayCap] = await Promise.all([
     seasonSchedule(teamAbbr, lastSeason),
     seasonSchedule(oppAbbr, lastSeason),
     seasonSchedule(oppAbbr, upcomingSeason),
     teamContext(homeAbbr, lastSeason),
     teamContext(awayAbbr, lastSeason),
     topDraftPicks(draftYear, new Set([homeAbbr, awayAbbr])),
+    capspaceSigned(homeAbbr),
+    capspaceSigned(awayAbbr),
   ]);
-  // A top pick already on the roster is covered by additions (as a debut) — don't double-list.
-  const homePicks = draftPicks.filter((p) => p.team === homeAbbr && !homeTeamCtx.additions.includes(p.name));
-  const awayPicks = draftPicks.filter((p) => p.team === awayAbbr && !awayTeamCtx.additions.includes(p.name));
+  // Attach signing status (from capspace) and drop picks already on the roster
+  // (covered by additions as a debut).
+  const enrich = (p: DraftPick, cap: Map<string, CapPlayer>): DraftPick => {
+    const c = cap.get(capNorm(p.name));
+    return { ...p, signed: c?.signed, aav: c?.aavLabel };
+  };
+  const homePicks = draftPicks
+    .filter((p) => p.team === homeAbbr && !homeTeamCtx.additions.includes(p.name))
+    .map((p) => enrich(p, homeCap));
+  const awayPicks = draftPicks
+    .filter((p) => p.team === awayAbbr && !awayTeamCtx.additions.includes(p.name))
+    .map((p) => enrich(p, awayCap));
 
   // Is this also the opponent's first game? (Season openers usually are, but the
   // target team's opener can be a mid-schedule game for the opponent.)
