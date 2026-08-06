@@ -125,48 +125,144 @@ interface GoalieStat {
 const playerName = (p: { firstName?: { default: string }; lastName?: { default: string } }) =>
   [p.firstName?.default, p.lastName?.default].filter(Boolean).join(' ');
 
-async function currentRosterIds(abbr: string): Promise<Set<number>> {
+interface RosterPlayer { id: number }
+async function currentRoster(abbr: string): Promise<RosterPlayer[]> {
   try {
-    const d = await nhlGet<{ forwards?: { id: number }[]; defensemen?: { id: number }[]; goalies?: { id: number }[] }>(
+    const d = await nhlGet<{ forwards?: RosterPlayer[]; defensemen?: RosterPlayer[]; goalies?: RosterPlayer[] }>(
       `/v1/roster/${abbr}/current`,
     );
-    const ids = new Set<number>();
-    for (const grp of [d.forwards, d.defensemen, d.goalies]) for (const p of grp ?? []) ids.add(p.id);
-    return ids;
+    return [...(d.forwards ?? []), ...(d.defensemen ?? []), ...(d.goalies ?? [])];
   } catch {
-    return new Set();
+    return [];
   }
 }
 
-/** Top returning skaters + primary goalie from last season, still on the roster. */
-async function keyPlayers(abbr: string, lastSeason: string): Promise<string> {
-  let stats: { skaters?: SkaterStat[]; goalies?: GoalieStat[] } | null = null;
-  let rosterIds = new Set<number>();
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
+interface Newcomer {
+  name: string;
+  pos: string;
+  priorTeam?: string;
+  priorPoints?: number;
+  debut: boolean;
+  overall?: number;
+}
+
+/** Enrich a newcomer from their player landing: prior team, NHL debut, draft. */
+async function enrichNewcomer(id: number, lastSeason: string): Promise<Newcomer | null> {
   try {
-    [stats, rosterIds] = await Promise.all([
+    const l = await nhlGet<{
+      firstName?: { default: string };
+      lastName?: { default: string };
+      position?: string;
+      draftDetails?: { year: number; overallPick: number };
+      careerTotals?: { regularSeason?: { gamesPlayed?: number } };
+      seasonTotals?: {
+        leagueAbbrev?: string; gameTypeId?: number; season?: number; points?: number;
+        teamCommonName?: { default: string };
+      }[];
+    }>(`/v1/player/${id}/landing`);
+    const nhlRows = (l.seasonTotals ?? []).filter((s) => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2);
+    const lastRow = nhlRows.filter((s) => s.season === Number(lastSeason)).at(-1) ?? nhlRows.at(-1);
+    return {
+      name: playerName(l),
+      pos: l.position ?? '',
+      priorTeam: lastRow?.teamCommonName?.default,
+      priorPoints: lastRow?.points,
+      debut: (l.careerTotals?.regularSeason?.gamesPlayed ?? 0) === 0,
+      overall: l.draftDetails?.overallPick,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function fmtNewcomer(n: Newcomer): string {
+  const q: string[] = [];
+  if (n.debut) {
+    q.push(n.overall && n.overall <= 10 ? `${ordinal(n.overall)} overall pick making his NHL debut` : 'making his NHL debut');
+  } else if (n.priorTeam) {
+    q.push(`from ${n.priorTeam}`);
+  }
+  if (!n.debut && n.priorPoints != null && n.priorPoints > 0) q.push(`${n.priorPoints} points last season`);
+  return `${n.name} (${n.pos})${q.length ? ` — ${q.join(', ')}` : ''}`;
+}
+
+export interface TeamContext {
+  keyPlayers: string;
+  additions: string;
+  departures: string;
+}
+
+/** Returning leaders + offseason additions (enriched) + notable departures. */
+async function teamContext(abbr: string, lastSeason: string): Promise<TeamContext> {
+  let stats: { skaters?: SkaterStat[]; goalies?: GoalieStat[] } | null = null;
+  let roster: RosterPlayer[] = [];
+  try {
+    [stats, roster] = await Promise.all([
       nhlGet<{ skaters?: SkaterStat[]; goalies?: GoalieStat[] }>(`/v1/club-stats/${abbr}/${lastSeason}/2`),
-      currentRosterIds(abbr),
+      currentRoster(abbr),
     ]);
   } catch {
-    return '';
+    return { keyPlayers: '', additions: '', departures: '' };
   }
-  if (!stats) return '';
-  const onRoster = (id: number) => rosterIds.size === 0 || rosterIds.has(id);
-  const skaters = (stats.skaters ?? [])
+  const rosterIds = new Set(roster.map((p) => p.id));
+  const lastIds = new Set([...(stats?.skaters ?? []), ...(stats?.goalies ?? [])].map((s) => s.playerId));
+  const haveRoster = rosterIds.size > 0;
+  const onRoster = (id: number) => !haveRoster || rosterIds.has(id);
+
+  // Additions first — so we can skip a returning goalie when a new one arrived.
+  let additions: string[] = [];
+  if (haveRoster) {
+    const newIds = roster.filter((p) => !lastIds.has(p.id)).slice(0, 16).map((p) => p.id);
+    const enriched = (await Promise.all(newIds.map((id) => enrichNewcomer(id, lastSeason)))).filter(
+      (n): n is Newcomer => !!n,
+    );
+    enriched.sort((a, b) => {
+      const rank = (n: Newcomer) => (n.pos === 'G' ? 3 : 0) + (n.debut ? 2 : 0) + (n.priorPoints ?? 0) / 200;
+      return rank(b) - rank(a);
+    });
+    additions = enriched.slice(0, 4).map(fmtNewcomer);
+  }
+  const addedGoalie = additions.some((a) => a.includes('(G)'));
+
+  // Returning leaders.
+  const keySk = (stats?.skaters ?? [])
     .filter((s) => onRoster(s.playerId))
     .sort((a, b) => b.points - a.points)
     .slice(0, 3)
     .map((s) => `${playerName(s)} (${s.goals}G-${s.assists}A-${s.points}P)`);
-  const goalie = (stats.goalies ?? [])
+  const keyParts = [...keySk];
+  const keyG = (stats?.goalies ?? [])
     .filter((g) => onRoster(g.playerId))
     .sort((a, b) => b.gamesPlayed - a.gamesPlayed)[0];
-  const parts = [...skaters];
-  if (goalie) {
-    parts.push(
-      `goaltender ${playerName(goalie)} (${goalie.wins}W, ${Number(goalie.goalsAgainstAverage).toFixed(2)} GAA, ${Number(goalie.savePercentage).toFixed(3)} SV%)`,
+  if (keyG && !addedGoalie) {
+    keyParts.push(
+      `goaltender ${playerName(keyG)} (${keyG.wins}W, ${Number(keyG.goalsAgainstAverage).toFixed(2)} GAA, ${Number(keyG.savePercentage).toFixed(3)} SV%)`,
     );
   }
-  return parts.join('; ');
+
+  // Notable departures (last season's roster, gone now).
+  const departures = haveRoster
+    ? [
+        ...(stats?.skaters ?? [])
+          .filter((s) => !rosterIds.has(s.playerId) && s.points >= 15)
+          .sort((a, b) => b.points - a.points)
+          .slice(0, 3)
+          .map((s) => `${playerName(s)} (${s.points} pts)`),
+        ...(stats?.goalies ?? [])
+          .filter((g) => !rosterIds.has(g.playerId) && g.gamesPlayed >= 20)
+          .sort((a, b) => b.gamesPlayed - a.gamesPlayed)
+          .slice(0, 1)
+          .map((g) => `${playerName(g)} (G)`),
+      ]
+    : [];
+
+  return { keyPlayers: keyParts.join('; '), additions: additions.join('; '), departures: departures.join('; ') };
 }
 
 export interface OpenerContext {
@@ -185,6 +281,10 @@ export interface OpenerContext {
   awaySummary: string;
   homeKeyPlayers: string;
   awayKeyPlayers: string;
+  homeAdditions: string;
+  awayAdditions: string;
+  homeDepartures: string;
+  awayDepartures: string;
 }
 
 function summarize(name: string, sched: SchedGame[], abbr: string): string {
@@ -207,12 +307,12 @@ export async function buildOpenerContext(
 
   const homeAbbr = opener.homeTeam.abbrev;
   const awayAbbr = opener.awayTeam.abbrev;
-  const [teamLast, oppLast, oppUpcoming, homeKeyPlayers, awayKeyPlayers] = await Promise.all([
+  const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx] = await Promise.all([
     seasonSchedule(teamAbbr, lastSeason),
     seasonSchedule(oppAbbr, lastSeason),
     seasonSchedule(oppAbbr, upcomingSeason),
-    keyPlayers(homeAbbr, lastSeason),
-    keyPlayers(awayAbbr, lastSeason),
+    teamContext(homeAbbr, lastSeason),
+    teamContext(awayAbbr, lastSeason),
   ]);
 
   // Is this also the opponent's first game? (Season openers usually are, but the
@@ -256,8 +356,12 @@ export async function buildOpenerContext(
     seriesNote,
     homeSummary: summarize(teamName(opener.homeTeam), opener.homeTeam.abbrev === teamAbbr ? teamLast : oppLast, homeAbbr),
     awaySummary: summarize(teamName(opener.awayTeam), opener.awayTeam.abbrev === teamAbbr ? teamLast : oppLast, awayAbbr),
-    homeKeyPlayers,
-    awayKeyPlayers,
+    homeKeyPlayers: homeTeamCtx.keyPlayers,
+    awayKeyPlayers: awayTeamCtx.keyPlayers,
+    homeAdditions: homeTeamCtx.additions,
+    awayAdditions: awayTeamCtx.additions,
+    homeDepartures: homeTeamCtx.departures,
+    awayDepartures: awayTeamCtx.departures,
   };
 }
 
@@ -290,6 +394,10 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awaySummary,
     ctx.homeKeyPlayers ? `${ctx.home.name} key returning players (last season's stats): ${ctx.homeKeyPlayers}.` : '',
     ctx.awayKeyPlayers ? `${ctx.away.name} key returning players (last season's stats): ${ctx.awayKeyPlayers}.` : '',
+    ctx.homeAdditions ? `${ctx.home.name} offseason additions: ${ctx.homeAdditions}.` : '',
+    ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
+    ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
+    ctx.awayDepartures ? `${ctx.away.name} notable departures: ${ctx.awayDepartures}.` : '',
   ].filter(Boolean).join('\n');
 
   const prompt = await loadSystemPrompt('game_preview.opener');
