@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AppNav } from '@/components/app-nav';
+import { SlideOver } from '@/components/ui/slide-over';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -373,17 +374,11 @@ export default function ContentPage() {
       </div>
 
       {/* Slide-over review/edit panel — docks on the right and splits the view. */}
-      <aside
-        aria-hidden={!panelOpen}
-        className={cn(
-          'fixed right-0 top-0 z-40 flex h-dvh w-full flex-col border-l bg-background shadow-xl transition-transform duration-200 lg:w-[36rem]',
-          panelOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full',
-        )}
-      >
+      <SlideOver open={panelOpen}>
         {editing && (
           <ReviewPanel key={editing.id} item={editing} onClose={closePanel} onChanged={load} />
         )}
-      </aside>
+      </SlideOver>
     </div>
   );
 }

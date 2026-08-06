@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, type ComponentType } from 'react';
-import { Ruler, Weight, Cake, MapPin, User, HelpCircle } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo, useRef, type ComponentType } from 'react';
+import { Ruler, Weight, Cake, MapPin, User, HelpCircle, XIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AppNav } from '@/components/app-nav';
+import { SlideOver } from '@/components/ui/slide-over';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -162,53 +164,43 @@ const MODE_LABEL: Record<ResolveMode, string> = {
   note: 'Note',
 };
 
-function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => void }) {
-  const [open, setOpen] = useState(false);
+function ResolvePanel({
+  item,
+  onClose,
+  onResolved,
+}: {
+  item: Item;
+  onClose: () => void;
+  onResolved: () => void;
+}) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<ResolveMode>('bio');
+  // missing_data ⇒ fill the gaps; no_player_page ⇒ link to an NHL id.
+  const [mode, setMode] = useState<ResolveMode>(item.reason === 'missing_data' ? 'bio' : 'alias');
+
+  const ov = item.bio_override;
+  const num = (v: number | null | undefined) => (v != null ? String(v) : '');
 
   const [nhlId, setNhlId] = useState('');
   const [canonicalName, setCanonicalName] = useState('');
   const [note, setNote] = useState('');
-  // bio fields
-  const [position, setPosition] = useState('');
-  const [classYear, setClassYear] = useState('');
-  const [heightInches, setHeightInches] = useState('');
-  const [weightLbs, setWeightLbs] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [hometown, setHometown] = useState('');
-  const [originCountry, setOriginCountry] = useState('');
-  const [priorTeam, setPriorTeam] = useState('');
-  const [priorLeague, setPriorLeague] = useState('');
+  // bio fields — prefilled from a previously-saved override, falling back to the
+  // candidate's own values (so partial saves are visible on reopen).
+  const [position, setPosition] = useState(ov?.position ?? item.position ?? '');
+  const [classYear, setClassYear] = useState(
+    num(ov?.class_year) || (item.class_year ? String(item.class_year) : ''),
+  );
+  const [heightInches, setHeightInches] = useState(num(ov?.height_inches));
+  const [weightLbs, setWeightLbs] = useState(num(ov?.weight_lbs));
+  const [birthDate, setBirthDate] = useState(ov?.birth_date ?? '');
+  const [hometown, setHometown] = useState(ov?.hometown ?? '');
+  const [originCountry, setOriginCountry] = useState(ov?.origin_country ?? '');
+  const [priorTeam, setPriorTeam] = useState(ov?.prior_team ?? item.prior_team ?? '');
+  const [priorLeague, setPriorLeague] = useState(ov?.prior_league ?? item.prior_league ?? '');
   // merge-duplicate field
   const [mergeName, setMergeName] = useState('');
 
   const missing = item.missing_fields ?? [];
-
-  function openDialog() {
-    // missing_data ⇒ fill the gaps; no_player_page ⇒ link to an NHL id.
-    setMode(item.reason === 'missing_data' ? 'bio' : 'alias');
-    setNhlId('');
-    setCanonicalName('');
-    setNote('');
-    // Prefill bio fields from a previously-saved override, falling back to the
-    // candidate's own values (so partial saves are visible on reopen).
-    const ov = item.bio_override;
-    const num = (v: number | null | undefined) => (v != null ? String(v) : '');
-    setPosition(ov?.position ?? item.position ?? '');
-    setClassYear(num(ov?.class_year) || (item.class_year ? String(item.class_year) : ''));
-    setHeightInches(num(ov?.height_inches));
-    setWeightLbs(num(ov?.weight_lbs));
-    setBirthDate(ov?.birth_date ?? '');
-    setHometown(ov?.hometown ?? '');
-    setOriginCountry(ov?.origin_country ?? '');
-    setPriorTeam(ov?.prior_team ?? item.prior_team ?? '');
-    setPriorLeague(ov?.prior_league ?? item.prior_league ?? '');
-    setMergeName('');
-    setError('');
-    setOpen(true);
-  }
 
   async function submit(finalize: boolean) {
     setSaving(true);
@@ -254,8 +246,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      setOpen(false);
       onResolved();
+      onClose();
     } else {
       setError((await res.json()).error ?? 'Failed to resolve');
     }
@@ -266,18 +258,18 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
     missing.includes(f) ? <span className="text-amber-500"> (missing)</span> : null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" onClick={openDialog}>
-        Resolve
-      </Button>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            Resolve — {item.player_name}{' '}
-            <span className="text-muted-foreground font-normal">({item.seo})</span>
-          </DialogTitle>
-        </DialogHeader>
+    <div className="flex h-full flex-col">
+      <div className="flex items-start gap-2 border-b p-4">
+        <div className="min-w-0 flex-1 font-heading text-base font-medium">
+          Resolve — {item.player_name}{' '}
+          <span className="text-muted-foreground font-normal">({item.seo})</span>
+        </div>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+          <XIcon />
+        </Button>
+      </div>
 
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div className="flex gap-1 flex-wrap">
           {(['bio', 'alias', 'merge', 'suppress', 'note'] as const).map((m) => (
             <button
@@ -447,11 +439,14 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
         )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <div className="flex justify-end gap-2 items-center">
-          <span className="text-xs text-muted-foreground mr-auto">
-            Save keeps the item in the queue; Save &amp; resolve clears it.
-          </span>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+
+      <div className="space-y-2 border-t bg-muted/50 p-4">
+        <p className="text-xs text-muted-foreground">
+          Save keeps the item in the queue; Save &amp; resolve clears it.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="outline" onClick={() => submit(false)} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
@@ -459,8 +454,8 @@ function ResolveDialog({ item, onResolved }: { item: Item; onResolved: () => voi
             {saving ? 'Saving…' : 'Save & resolve'}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }
 
@@ -726,6 +721,20 @@ export default function ResearchPage() {
   const [teamQuery, setTeamQuery] = useState('');
   const [seosearch, setSeoSearch] = useState('');
 
+  // Slide-over resolve panel (see the content page for the same pattern).
+  const [resolving, setResolving] = useState<Item | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function openResolve(item: Item) {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setResolving(item);
+    setPanelOpen(true);
+  }
+  function closeResolve() {
+    setPanelOpen(false);
+    closeTimer.current = setTimeout(() => setResolving(null), 220);
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     const res = await fetch('/api/admin/research');
@@ -776,7 +785,12 @@ export default function ResearchPage() {
   return (
     <div className="flex flex-col flex-1">
       <AppNav />
-      <div className="p-6 max-w-7xl w-full mx-auto space-y-4">
+      <div
+        className={cn(
+          'w-full space-y-4 p-6 transition-[padding] duration-200',
+          panelOpen && 'lg:pr-[41rem]',
+        )}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">Research queue</h1>
@@ -941,7 +955,13 @@ export default function ResearchPage() {
                                 {effectiveStatus(item) !== 'resolved' && (
                                   <Button size="sm" variant="ghost" onClick={() => setStatus(item, 'resolved')} title="Clear from queue as-is (no data change)">Approve</Button>
                                 )}
-                                <ResolveDialog item={item} onResolved={load} />
+                                <Button
+                                  size="sm"
+                                  variant={resolving?.dedup_key === item.dedup_key && panelOpen ? 'secondary' : 'default'}
+                                  onClick={() => openResolve(item)}
+                                >
+                                  Resolve
+                                </Button>
                               </div>
                             )}
                           </TableCell>
@@ -960,6 +980,13 @@ export default function ResearchPage() {
           </>
         )}
       </div>
+
+      {/* Slide-over resolve panel — docks on the right and splits the view. */}
+      <SlideOver open={panelOpen} width="lg:w-[40rem]">
+        {resolving && (
+          <ResolvePanel key={resolving.dedup_key} item={resolving} onClose={closeResolve} onResolved={load} />
+        )}
+      </SlideOver>
     </div>
   );
 }
