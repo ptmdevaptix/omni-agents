@@ -68,18 +68,105 @@ function regularRecord(games: SchedGame[], abbr: string) {
   return { w, l, otl };
 }
 
-/** Whether/how far a team went in the playoffs, from type-3 games. */
-function playoffSummary(games: SchedGame[], abbr: string) {
+const ROUND_NAME = ['', 'the first round', 'the second round', 'the conference final', 'the Stanley Cup Final'];
+
+/** How far a team went in the playoffs, in round terms (from type-3 games). */
+function playoffResult(games: SchedGame[], abbr: string): string {
   const po = games.filter((g) => g.gameType === 3 && isDecided(g));
-  if (po.length === 0) return { made: false, w: 0, l: 0 };
-  let w = 0, l = 0;
+  if (po.length === 0) return 'missed the playoffs';
+
+  // Group by opponent = one series; number of series = rounds reached.
+  const series = new Map<string, SchedGame[]>();
   for (const g of po) {
+    const opp = g.homeTeam.abbrev === abbr ? g.awayTeam.abbrev : g.homeTeam.abbrev;
+    if (!series.has(opp)) series.set(opp, []);
+    series.get(opp)!.push(g);
+  }
+  const roundsReached = series.size;
+
+  // The latest series determines the outcome (won it → advanced/Cup; lost → out).
+  let lastGames: SchedGame[] = [];
+  let lastDate = '';
+  for (const gs of series.values()) {
+    const d = gs.map((x) => x.gameDate).sort().at(-1)!;
+    if (d > lastDate) { lastDate = d; lastGames = gs; }
+  }
+  const wins = lastGames.filter((g) => {
     const us = g.homeTeam.abbrev === abbr ? g.homeTeam : g.awayTeam;
     const them = g.homeTeam.abbrev === abbr ? g.awayTeam : g.homeTeam;
-    if (us.score == null || them.score == null) continue;
-    if (us.score > them.score) w++; else l++;
+    return (us.score ?? 0) > (them.score ?? 0);
+  }).length;
+  const wonLast = wins >= 4;
+  const roundName = ROUND_NAME[roundsReached] ?? `round ${roundsReached}`;
+
+  if (wonLast && roundsReached >= 4) return 'won the Stanley Cup';
+  return `were eliminated in ${roundName}`;
+}
+
+// ---- Key players (last-season leaders still on the current roster) ----
+interface SkaterStat {
+  playerId: number;
+  firstName?: { default: string };
+  lastName?: { default: string };
+  gamesPlayed: number;
+  goals: number;
+  assists: number;
+  points: number;
+}
+interface GoalieStat {
+  playerId: number;
+  firstName?: { default: string };
+  lastName?: { default: string };
+  gamesPlayed: number;
+  wins: number;
+  goalsAgainstAverage: number;
+  savePercentage: number;
+}
+const playerName = (p: { firstName?: { default: string }; lastName?: { default: string } }) =>
+  [p.firstName?.default, p.lastName?.default].filter(Boolean).join(' ');
+
+async function currentRosterIds(abbr: string): Promise<Set<number>> {
+  try {
+    const d = await nhlGet<{ forwards?: { id: number }[]; defensemen?: { id: number }[]; goalies?: { id: number }[] }>(
+      `/v1/roster/${abbr}/current`,
+    );
+    const ids = new Set<number>();
+    for (const grp of [d.forwards, d.defensemen, d.goalies]) for (const p of grp ?? []) ids.add(p.id);
+    return ids;
+  } catch {
+    return new Set();
   }
-  return { made: true, w, l };
+}
+
+/** Top returning skaters + primary goalie from last season, still on the roster. */
+async function keyPlayers(abbr: string, lastSeason: string): Promise<string> {
+  let stats: { skaters?: SkaterStat[]; goalies?: GoalieStat[] } | null = null;
+  let rosterIds = new Set<number>();
+  try {
+    [stats, rosterIds] = await Promise.all([
+      nhlGet<{ skaters?: SkaterStat[]; goalies?: GoalieStat[] }>(`/v1/club-stats/${abbr}/${lastSeason}/2`),
+      currentRosterIds(abbr),
+    ]);
+  } catch {
+    return '';
+  }
+  if (!stats) return '';
+  const onRoster = (id: number) => rosterIds.size === 0 || rosterIds.has(id);
+  const skaters = (stats.skaters ?? [])
+    .filter((s) => onRoster(s.playerId))
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 3)
+    .map((s) => `${playerName(s)} (${s.goals}G-${s.assists}A-${s.points}P)`);
+  const goalie = (stats.goalies ?? [])
+    .filter((g) => onRoster(g.playerId))
+    .sort((a, b) => b.gamesPlayed - a.gamesPlayed)[0];
+  const parts = [...skaters];
+  if (goalie) {
+    parts.push(
+      `goaltender ${playerName(goalie)} (${goalie.wins}W, ${Number(goalie.goalsAgainstAverage).toFixed(2)} GAA, ${Number(goalie.savePercentage).toFixed(3)} SV%)`,
+    );
+  }
+  return parts.join('; ');
 }
 
 export interface OpenerContext {
@@ -96,14 +183,14 @@ export interface OpenerContext {
   seriesNote: string;
   homeSummary: string;
   awaySummary: string;
+  homeKeyPlayers: string;
+  awayKeyPlayers: string;
 }
 
 function summarize(name: string, sched: SchedGame[], abbr: string): string {
   const r = regularRecord(sched, abbr);
-  const po = playoffSummary(sched, abbr);
   const rec = `${r.w}-${r.l}${r.otl ? `-${r.otl}` : ''}`;
-  const poStr = po.made ? `made the playoffs (${po.w}-${po.l} in playoff games)` : 'missed the playoffs';
-  return `${name}: ${rec} regular-season record last season; ${poStr}.`;
+  return `${name}: ${rec} regular-season record last season; ${playoffResult(sched, abbr)}.`;
 }
 
 /** Build grounded opener context for `teamAbbr`'s first regular-season game. */
@@ -118,10 +205,14 @@ export async function buildOpenerContext(
 
   const oppAbbr = opener.homeTeam.abbrev === teamAbbr ? opener.awayTeam.abbrev : opener.homeTeam.abbrev;
 
-  const [teamLast, oppLast, oppUpcoming] = await Promise.all([
+  const homeAbbr = opener.homeTeam.abbrev;
+  const awayAbbr = opener.awayTeam.abbrev;
+  const [teamLast, oppLast, oppUpcoming, homeKeyPlayers, awayKeyPlayers] = await Promise.all([
     seasonSchedule(teamAbbr, lastSeason),
     seasonSchedule(oppAbbr, lastSeason),
     seasonSchedule(oppAbbr, upcomingSeason),
+    keyPlayers(homeAbbr, lastSeason),
+    keyPlayers(awayAbbr, lastSeason),
   ]);
 
   // Is this also the opponent's first game? (Season openers usually are, but the
@@ -163,12 +254,10 @@ export async function buildOpenerContext(
     openerForBoth,
     headToHead: h2h.map(({ date, line }) => ({ date, line })),
     seriesNote,
-    homeSummary: summarize(teamName(opener.homeTeam), teamLast.length ? teamLast : sched, opener.homeTeam.abbrev),
-    awaySummary: summarize(
-      teamName(opener.awayTeam),
-      opener.homeTeam.abbrev === teamAbbr ? oppLast : teamLast,
-      opener.awayTeam.abbrev,
-    ),
+    homeSummary: summarize(teamName(opener.homeTeam), opener.homeTeam.abbrev === teamAbbr ? teamLast : oppLast, homeAbbr),
+    awaySummary: summarize(teamName(opener.awayTeam), opener.awayTeam.abbrev === teamAbbr ? teamLast : oppLast, awayAbbr),
+    homeKeyPlayers,
+    awayKeyPlayers,
   };
 }
 
@@ -190,7 +279,6 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
   const facts = [
     `Matchup: ${ctx.away.name} at ${ctx.home.name}.`,
     `Date: ${ctx.weekday}, ${ctx.date}${ctx.venue ? `, at ${ctx.venue}` : ''}.`,
-    ctx.networks.length ? `National TV: ${ctx.networks.join(', ')}.` : '',
     ctx.openerForBoth
       ? 'This is the season opener for BOTH teams.'
       : `This is ${ctx.targetName}'s season opener; the opponent has already played earlier games this season.`,
@@ -200,6 +288,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
       : '',
     ctx.homeSummary,
     ctx.awaySummary,
+    ctx.homeKeyPlayers ? `${ctx.home.name} key returning players (last season's stats): ${ctx.homeKeyPlayers}.` : '',
+    ctx.awayKeyPlayers ? `${ctx.away.name} key returning players (last season's stats): ${ctx.awayKeyPlayers}.` : '',
   ].filter(Boolean).join('\n');
 
   const prompt = await loadSystemPrompt('game_preview.opener');
