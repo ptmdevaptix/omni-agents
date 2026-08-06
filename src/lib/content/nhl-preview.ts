@@ -302,7 +302,10 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
     const newIds = roster.filter((p) => !lastIds.has(p.id)).slice(0, 16).map((p) => p.id);
     const enriched = (await Promise.all(newIds.map((id) => enrichNewcomer(id, lastSeason)))).filter(
       (n): n is Newcomer => !!n,
-    );
+    )
+      // Drop minor-league/depth pickups (played last season in the AHL/ECHL and
+      // not making an NHL debut) — they're not roster storylines for a preview.
+      .filter((n) => !(n.priorLeague && /^(AHL|ECHL)$/i.test(n.priorLeague) && !n.debut));
     enriched.sort((a, b) => {
       const rank = (n: Newcomer) => (n.pos === 'G' ? 3 : 0) + (n.debut ? 2 : 0) + (n.priorPoints ?? 0) / 200;
       return rank(b) - rank(a);
