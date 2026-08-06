@@ -146,13 +146,18 @@ function ordinal(n: number): string {
 interface Newcomer {
   name: string;
   pos: string;
-  priorTeam?: string;
+  priorTeam?: string;   // NHL team he played for LAST season (current identity), if any
   priorPoints?: number;
+  priorLeague?: string; // league he played in last season when it wasn't the NHL (e.g. 'AHL')
   debut: boolean;
   overall?: number;
 }
 
-/** Enrich a newcomer from their player landing: prior team, NHL debut, draft. */
+/**
+ * Enrich a newcomer from their player landing: where he actually played LAST
+ * season (an NHL team only if he was in the NHL that season — never a stale or
+ * since-relocated franchise from an earlier year), NHL debut, draft.
+ */
 async function enrichNewcomer(id: number, lastSeason: string): Promise<Newcomer | null> {
   try {
     const l = await nhlGet<{
@@ -166,13 +171,17 @@ async function enrichNewcomer(id: number, lastSeason: string): Promise<Newcomer 
         teamCommonName?: { default: string };
       }[];
     }>(`/v1/player/${id}/landing`);
-    const nhlRows = (l.seasonTotals ?? []).filter((s) => s.leagueAbbrev === 'NHL' && s.gameTypeId === 2);
-    const lastRow = nhlRows.filter((s) => s.season === Number(lastSeason)).at(-1) ?? nhlRows.at(-1);
+    // Only consider rows from the season immediately prior — never fall back to
+    // an older NHL row (that surfaced players "from" teams they left years ago,
+    // including franchises that have since relocated).
+    const lastRows = (l.seasonTotals ?? []).filter((s) => s.season === Number(lastSeason) && s.gameTypeId === 2);
+    const nhlLast = lastRows.find((s) => s.leagueAbbrev === 'NHL');
     return {
       name: playerName(l),
       pos: l.position ?? '',
-      priorTeam: lastRow?.teamCommonName?.default,
-      priorPoints: lastRow?.points,
+      priorTeam: nhlLast?.teamCommonName?.default,
+      priorPoints: nhlLast?.points,
+      priorLeague: !nhlLast ? lastRows.find((s) => s.leagueAbbrev)?.leagueAbbrev : undefined,
       debut: (l.careerTotals?.regularSeason?.gamesPlayed ?? 0) === 0,
       overall: l.draftDetails?.overallPick,
     };
@@ -186,9 +195,11 @@ function fmtNewcomer(n: Newcomer): string {
   if (n.debut) {
     q.push(n.overall && n.overall <= 10 ? `${ordinal(n.overall)} overall pick making his NHL debut` : 'making his NHL debut');
   } else if (n.priorTeam) {
-    q.push(`from ${n.priorTeam}`);
+    q.push(`from the ${n.priorTeam}`);
+    if (n.priorPoints != null && n.priorPoints > 0) q.push(`${n.priorPoints} points last season`);
+  } else if (n.priorLeague) {
+    q.push(`spent last season in the ${n.priorLeague}`);
   }
-  if (!n.debut && n.priorPoints != null && n.priorPoints > 0) q.push(`${n.priorPoints} points last season`);
   return `${n.name} (${n.pos})${q.length ? ` — ${q.join(', ')}` : ''}`;
 }
 
