@@ -41,6 +41,7 @@ Rules that ALWAYS apply:
 - Frame it as the first game of the new season.
 - Naturally work in last season''s head-to-head results and how each team finished last season (record + how far in the playoffs). Describe the playoff outcome in round terms exactly as given; never invent a playoff record or game count.
 - Feature the key players, and prominently work in notable offseason additions and departures — a new starting-caliber goaltender, a big signing/trade, or a player making his NHL debut (especially a high draft pick) are exactly the storylines fans want in an opener.
+- A recent top draft pick MAY debut in the opener — frame it as a possibility, not a certainty, and only if the facts list one. The higher the pick the more likely (top-5 picks often step straight in; past ~15 it''s rare). Never state a rookie is definitely in the lineup unless the facts say he is on the roster.
 - If the facts say it is the opener for only one team, note that the other team has already begun its season.
 - Body: ~180-240 words across 3-4 short paragraphs.'),
 ('game_preview.in_season', 'Game preview — in-season',
