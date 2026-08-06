@@ -89,10 +89,12 @@ function ReviewPanel({
   item,
   onClose,
   onChanged,
+  onDirtyChange,
 }: {
   item: ContentItem;
   onClose: () => void;
   onChanged: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [title, setTitle] = useState(item.title ?? '');
   const [summary, setSummary] = useState(item.summary ?? '');
@@ -101,6 +103,12 @@ function ReviewPanel({
 
   const dirty =
     title !== (item.title ?? '') || summary !== (item.summary ?? '') || body !== item.body;
+
+  // Report dirty state up so the list can warn before switching/closing.
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
 
   async function act(status?: string) {
     setSaving(true);
@@ -187,13 +195,21 @@ export default function ContentPage() {
   const [editing, setEditing] = useState<ContentItem | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const reportDirty = useCallback((d: boolean) => { dirtyRef.current = d; }, []);
   function openPanel(item: ContentItem) {
+    // Switching to a different item while there are unsaved edits → confirm.
+    if (panelOpen && editing && item.id !== editing.id && dirtyRef.current) {
+      if (!window.confirm('You have unsaved edits. Discard them and open this item?')) return;
+    }
     if (closeTimer.current) clearTimeout(closeTimer.current);
+    dirtyRef.current = false;
     setEditing(item);
     setPanelOpen(true);
   }
   function closePanel() {
     setPanelOpen(false);
+    dirtyRef.current = false;
     closeTimer.current = setTimeout(() => setEditing(null), 220);
   }
 
@@ -210,13 +226,22 @@ export default function ContentPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Sort key: the game's start time (date + time) so previews list soonest-first;
+  // fall back to the stored date, then generation time for non-game content.
+  const gameTime = (i: ContentItem): string => {
+    const d = i.data as { start_time_utc?: string | null; date?: string | null };
+    return d?.start_time_utc || d?.date || i.generated_at;
+  };
+
   const filtered = useMemo(() => {
-    return items.filter((i) => {
-      if (typeFilter !== 'all' && i.content_type !== typeFilter) return false;
-      if (statusFilter !== 'all' && i.status !== statusFilter) return false;
-      if (leagueFilter !== 'all' && i.league !== leagueFilter) return false;
-      return true;
-    });
+    return items
+      .filter((i) => {
+        if (typeFilter !== 'all' && i.content_type !== typeFilter) return false;
+        if (statusFilter !== 'all' && i.status !== statusFilter) return false;
+        if (leagueFilter !== 'all' && i.league !== leagueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => gameTime(a).localeCompare(gameTime(b)));
   }, [items, typeFilter, statusFilter, leagueFilter]);
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((i) => selected.has(i.id));
@@ -376,7 +401,13 @@ export default function ContentPage() {
       {/* Slide-over review/edit panel — docks on the right and splits the view. */}
       <SlideOver open={panelOpen}>
         {editing && (
-          <ReviewPanel key={editing.id} item={editing} onClose={closePanel} onChanged={load} />
+          <ReviewPanel
+            key={editing.id}
+            item={editing}
+            onClose={closePanel}
+            onChanged={load}
+            onDirtyChange={reportDirty}
+          />
         )}
       </SlideOver>
     </div>
