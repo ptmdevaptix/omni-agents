@@ -17,6 +17,7 @@ export function AppNav() {
     { href: '/articles', label: 'Articles' },
     { href: '/admin/feeds', label: 'Manage Feeds' },
     { href: '/admin/research', label: 'Research' },
+    { href: '/admin/content', label: 'Content' },
   ];
 
   return (
