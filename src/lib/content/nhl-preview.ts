@@ -192,6 +192,42 @@ function fmtNewcomer(n: Newcomer): string {
   return `${n.name} (${n.pos})${q.length ? ` — ${q.join(', ')}` : ''}`;
 }
 
+// ---- Recent draft (high picks who may step straight to the NHL) ----
+interface DraftPick { overall: number; team: string; name: string; pos: string; club?: string; league?: string; }
+
+const strOrDefault = (v: unknown): string | undefined =>
+  typeof v === 'string' ? v : (v as { default?: string })?.default;
+
+/** Top picks (overall <= max) from a draft year, for the given teams. */
+async function topDraftPicks(draftYear: string, teams: Set<string>, maxOverall = 15): Promise<DraftPick[]> {
+  try {
+    const d = await nhlGet<{
+      picks?: {
+        overallPick: number; teamAbbrev: string; positionCode?: string;
+        firstName?: { default: string }; lastName?: { default: string };
+        amateurClubName?: unknown; amateurLeague?: unknown;
+      }[];
+    }>(`/v1/draft/picks/${draftYear}/all`);
+    return (d.picks ?? [])
+      .filter((p) => p.overallPick <= maxOverall && teams.has(p.teamAbbrev))
+      .map((p) => ({
+        overall: p.overallPick,
+        team: p.teamAbbrev,
+        name: [p.firstName?.default, p.lastName?.default].filter(Boolean).join(' '),
+        pos: p.positionCode ?? '',
+        club: strOrDefault(p.amateurClubName),
+        league: strOrDefault(p.amateurLeague),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function fmtPick(p: DraftPick): string {
+  const from = p.club ? `, from ${p.club}${p.league ? ` (${p.league})` : ''}` : '';
+  return `${p.name} (${ordinal(p.overall)} overall${p.pos ? `, ${p.pos}` : ''}${from})`;
+}
+
 export interface TeamContext {
   keyPlayers: string;
   additions: string;
@@ -285,6 +321,8 @@ export interface OpenerContext {
   awayAdditions: string;
   homeDepartures: string;
   awayDepartures: string;
+  homeDraftPicks: string;
+  awayDraftPicks: string;
 }
 
 function summarize(name: string, sched: SchedGame[], abbr: string): string {
@@ -307,13 +345,18 @@ export async function buildOpenerContext(
 
   const homeAbbr = opener.homeTeam.abbrev;
   const awayAbbr = opener.awayTeam.abbrev;
-  const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx] = await Promise.all([
+  const draftYear = upcomingSeason.slice(0, 4); // 2026-27 season ⇒ 2026 draft
+  const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx, draftPicks] = await Promise.all([
     seasonSchedule(teamAbbr, lastSeason),
     seasonSchedule(oppAbbr, lastSeason),
     seasonSchedule(oppAbbr, upcomingSeason),
     teamContext(homeAbbr, lastSeason),
     teamContext(awayAbbr, lastSeason),
+    topDraftPicks(draftYear, new Set([homeAbbr, awayAbbr])),
   ]);
+  // A top pick already on the roster is covered by additions (as a debut) — don't double-list.
+  const homePicks = draftPicks.filter((p) => p.team === homeAbbr && !homeTeamCtx.additions.includes(p.name));
+  const awayPicks = draftPicks.filter((p) => p.team === awayAbbr && !awayTeamCtx.additions.includes(p.name));
 
   // Is this also the opponent's first game? (Season openers usually are, but the
   // target team's opener can be a mid-schedule game for the opponent.)
@@ -362,6 +405,8 @@ export async function buildOpenerContext(
     awayAdditions: awayTeamCtx.additions,
     homeDepartures: homeTeamCtx.departures,
     awayDepartures: awayTeamCtx.departures,
+    homeDraftPicks: homePicks.map(fmtPick).join('; '),
+    awayDraftPicks: awayPicks.map(fmtPick).join('; '),
   };
 }
 
@@ -398,6 +443,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
     ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
     ctx.awayDepartures ? `${ctx.away.name} notable departures: ${ctx.awayDepartures}.` : '',
+    ctx.homeDraftPicks ? `${ctx.home.name} recent top draft pick(s) — may debut this season if signed/rostered: ${ctx.homeDraftPicks}.` : '',
+    ctx.awayDraftPicks ? `${ctx.away.name} recent top draft pick(s) — may debut this season if signed/rostered: ${ctx.awayDraftPicks}.` : '',
   ].filter(Boolean).join('\n');
 
   const prompt = await loadSystemPrompt('game_preview.opener');
