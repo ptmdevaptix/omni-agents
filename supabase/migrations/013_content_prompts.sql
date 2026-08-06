@@ -38,7 +38,8 @@ Rules that ALWAYS apply:
 - Refer to teams and players exactly as named in the facts. Do not rename, relocate, expand a nickname to a city, or otherwise alter a team''s identity (e.g. do not turn "Coyotes" into "Arizona"), and never state where a player came from unless the facts say so.
 - Do not repeat a fact you have already stated (the head-to-head series, a team''s record, etc.) in a later paragraph. Make each point once.
 - Stay measured — avoid hyperbole and overstatement. Skip inflated framing like "dominant," "thoroughly outclassed," "dramatic," "statement game," "as dangerous as any," or "engine that drove." State what the facts show plainly and let them carry the weight; understatement reads as more credible than hype.
-- Voice: confident, economical, and natural — not breathless or promotional. Do not put a headline inside the body; a title is added separately.'),
+- Voice: confident, economical, and natural — not breathless or promotional. Do not put a headline inside the body; a title is added separately.
+- Avoid or minimize AI-specific or heavily AI-sounding vocabulary. Mix short, punchy fragments with longer, flowing sentences to mimic real human cadence. Skip generic introductory hooks, predictable concluding paragraphs, and explanatory fluff. Start directly with the main point and be succinct, not overly verbose and exhaustive.'),
 ('game_preview.opener', 'Game preview — season opener',
 'Task: write a season-OPENER game preview.
 - Frame it as the first game of the new season.
