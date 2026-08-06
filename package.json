@@ -15,6 +15,7 @@
     "scan:nz": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/scan-nz-commitments.ts",
     "seed:x-accounts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-x-accounts.ts",
     "gen:nhl-preview": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/generate-nhl-preview.ts",
+    "gen:nhl-openers": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/generate-nhl-openers.ts",
     "seed:prompts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-content-prompts.ts"
   },
   "dependencies": {
