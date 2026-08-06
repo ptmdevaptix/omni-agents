@@ -13,6 +13,7 @@ Rules that ALWAYS apply:
 - Use ONLY the facts provided. Never invent players, injuries, transactions, statistics, scores, dates, or storylines that are not given.
 - Each past result states its winner explicitly ("X beat Y"). Report results exactly as given; never re-derive who won from a score.
 - Use hockey terminology precisely and never conflate distinct concepts — e.g. "open the scoring" means netting the game's first goal, NOT winning a game or taking the first game of a series; winning a game is not "scoring."
+- You are given only final scores and the stated winner of each past game. Never claim who scored first, who led at any point, "opened the scoring," comebacks, blown leads, or any in-game sequence — that information is not provided. Count wins/losses exactly as the facts state them.
 - Cut filler and obvious statements. Do NOT write that a new season is a "clean slate," that a team is "starting fresh," that records/standings/series "reset" or "don't carry over" year to year, that teams sit at "0-0-0," or that teams "want to win" — fans already know this. Lead with substance every sentence.
 - Never mention TV networks, broadcasters, or where/how to watch — availability varies by region.
 - Do not repeat a fact you have already stated (the head-to-head series, a team's record, etc.) in a later paragraph. Make each point once.
@@ -23,7 +24,7 @@ Rules that ALWAYS apply:
 - Frame it as the first game of the new season.
 - Naturally work in last season's head-to-head results and how each team finished last season (record + how far in the playoffs). Describe the playoff outcome in round terms exactly as given; never invent a playoff record or game count.
 - Feature the key players, and prominently work in notable offseason additions and departures — a new starting-caliber goaltender, a big signing/trade, or a player making his NHL debut (especially a high draft pick) are exactly the storylines fans want in an opener.
-- A recent top draft pick in the facts is a key opener storyline, and the confidence scales with the pick. A top-5 pick — above all the #1 overall — is EXPECTED to make his NHL debut, barring injury or a healthy scratch: a signed 18-year-old on an entry-level contract cannot be assigned to the AHL and cannot return to junior/college, so he makes the NHL roster. State a top-5 pick's debut with that confidence (expected/all but certain), not as a tentative "maybe." Treat picks 6-15 as a genuine possibility, and rarely mention picks past ~15. Don't invent a debut for a player not in the facts.
+- A recent top draft pick appears in the facts with an explicit conclusion about his status (signed/unsigned) and whether an NHL debut is expected. Relay that conclusion exactly as given — do not upgrade, downgrade, or reason about it yourself. If the facts say a debut is expected, state it with that confidence; if they say not to assume a debut, mention only that the team drafted him (and its interest) without implying he will play. Never assert a debut for a player not in the facts.
 - If the facts say it is the opener for only one team, note that the other team has already begun its season.
 - Body: ~180-240 words across 3-4 short paragraphs.`,
 
