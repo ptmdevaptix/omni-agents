@@ -356,6 +356,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
 export interface OpenerContext {
   gameId: number;
   date: string;
+  startTimeUTC: string | null;
   weekday: string;
   venue: string | null;
   networks: string[];
@@ -451,6 +452,7 @@ export async function buildOpenerContext(
   return {
     gameId: opener.id,
     date: opener.gameDate,
+    startTimeUTC: opener.startTimeUTC ?? null,
     weekday,
     venue: opener.venue?.default ?? null,
     networks: (opener.tvBroadcasts ?? []).map((b) => b.network).filter(Boolean),
@@ -545,6 +547,7 @@ export async function saveGamePreview(
     home: ctx.home,
     away: ctx.away,
     date: ctx.date,
+    start_time_utc: ctx.startTimeUTC,
     opener_for_both: ctx.openerForBoth,
     series_note: ctx.seriesNote,
     head_to_head: ctx.headToHead,

@@ -168,10 +168,12 @@ function ResolvePanel({
   item,
   onClose,
   onResolved,
+  onDirtyChange,
 }: {
   item: Item;
   onClose: () => void;
   onResolved: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -201,6 +203,21 @@ function ResolvePanel({
   const [mergeName, setMergeName] = useState('');
 
   const missing = item.missing_fields ?? [];
+
+  // Dirty = any editable field changed from its seeded value. Capture the seed
+  // on first render (states start equal to their seeds); mode switches alone
+  // don't count. Report up so the list can warn before switching/closing.
+  const snapshot = JSON.stringify({
+    nhlId, canonicalName, note, position, classYear, heightInches, weightLbs,
+    birthDate, hometown, originCountry, priorTeam, priorLeague, mergeName,
+  });
+  const seedRef = useRef<string | null>(null);
+  if (seedRef.current === null) seedRef.current = snapshot;
+  const dirty = seedRef.current !== snapshot;
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
 
   async function submit(finalize: boolean) {
     setSaving(true);
@@ -725,13 +742,21 @@ export default function ResearchPage() {
   const [resolving, setResolving] = useState<Item | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const reportDirty = useCallback((d: boolean) => { dirtyRef.current = d; }, []);
   function openResolve(item: Item) {
+    // Switching to a different item while there are unsaved edits → confirm.
+    if (panelOpen && resolving && item.dedup_key !== resolving.dedup_key && dirtyRef.current) {
+      if (!window.confirm('You have unsaved edits. Discard them and open this item?')) return;
+    }
     if (closeTimer.current) clearTimeout(closeTimer.current);
+    dirtyRef.current = false;
     setResolving(item);
     setPanelOpen(true);
   }
   function closeResolve() {
     setPanelOpen(false);
+    dirtyRef.current = false;
     closeTimer.current = setTimeout(() => setResolving(null), 220);
   }
 
@@ -984,7 +1009,13 @@ export default function ResearchPage() {
       {/* Slide-over resolve panel — docks on the right and splits the view. */}
       <SlideOver open={panelOpen} width="lg:w-[40rem]">
         {resolving && (
-          <ResolvePanel key={resolving.dedup_key} item={resolving} onClose={closeResolve} onResolved={load} />
+          <ResolvePanel
+            key={resolving.dedup_key}
+            item={resolving}
+            onClose={closeResolve}
+            onResolved={load}
+            onDirtyChange={reportDirty}
+          />
         )}
       </SlideOver>
     </div>
