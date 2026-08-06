@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { XIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AppNav } from '@/components/app-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,12 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -88,77 +84,88 @@ async function saveEdits(
   });
 }
 
-function ReviewDialog({ item, onChanged }: { item: ContentItem; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
+function ReviewPanel({
+  item,
+  onClose,
+  onChanged,
+}: {
+  item: ContentItem;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
   const [title, setTitle] = useState(item.title ?? '');
   const [summary, setSummary] = useState(item.summary ?? '');
   const [body, setBody] = useState(item.body);
   const [saving, setSaving] = useState(false);
-
-  // Re-seed the fields whenever the dialog opens or the underlying item changes.
-  useEffect(() => {
-    if (open) {
-      setTitle(item.title ?? '');
-      setSummary(item.summary ?? '');
-      setBody(item.body);
-    }
-  }, [open, item.title, item.summary, item.body]);
 
   const dirty =
     title !== (item.title ?? '') || summary !== (item.summary ?? '') || body !== item.body;
 
   async function act(status?: string) {
     setSaving(true);
-    const fields = { title: title.trim() || null, summary: summary.trim() || null, body };
     // If text changed (or a status transition is requested), persist via PUT so
-    // edits and the status change land together; otherwise a plain status PATCH.
-    if (dirty || status) await saveEdits(item.id, fields, status);
+    // edits and the status change land together; otherwise nothing to do.
+    if (dirty || status) {
+      await saveEdits(
+        item.id,
+        { title: title.trim() || null, summary: summary.trim() || null, body },
+        status,
+      );
+    }
     setSaving(false);
-    setOpen(false);
     onChanged();
+    onClose();
   }
 
   const textarea =
     'w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm leading-relaxed outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>View / edit</Button>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            Review
+    <div className="flex h-full flex-col">
+      <div className="flex items-start gap-2 border-b p-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-heading text-base font-medium">Review</span>
             <StatusBadge status={item.status} />
-            {dirty && <span className="text-xs font-normal text-amber-600">unsaved edits</span>}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="text-xs text-muted-foreground">
-          {TYPE_LABEL[item.content_type] ?? item.content_type}
-          {item.league ? ` · ${item.league}` : ''} · {item.model ?? 'model n/a'} · v{item.version} ·{' '}
-          {new Date(item.generated_at).toLocaleString()}
-        </div>
-        <div className="space-y-3 overflow-y-auto max-h-[60vh] pr-1">
-          <div className="space-y-1">
-            <Label className="text-xs">Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            {dirty && <span className="text-xs text-amber-600">unsaved edits</span>}
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Summary</Label>
-            <textarea className={textarea} rows={2} value={summary} onChange={(e) => setSummary(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Body</Label>
-            <textarea className={textarea} rows={14} value={body} onChange={(e) => setBody(e.target.value)} />
+          <div className="text-xs text-muted-foreground">
+            {TYPE_LABEL[item.content_type] ?? item.content_type}
+            {item.league ? ` · ${item.league}` : ''} · {item.model ?? 'model n/a'} · v{item.version} ·{' '}
+            {new Date(item.generated_at).toLocaleString()}
           </div>
         </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => act('rejected')} disabled={saving}>Reject</Button>
-          <Button variant="outline" onClick={() => act()} disabled={saving || !dirty}>Save</Button>
-          <Button variant="outline" onClick={() => act('reviewed')} disabled={saving}>Save &amp; mark reviewed</Button>
-          <Button onClick={() => act('approved')} disabled={saving}>Save &amp; approve</Button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+          <XIcon />
+        </Button>
+      </div>
+
+      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="space-y-1">
+          <Label className="text-xs">Title</Label>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
-      </DialogContent>
-    </Dialog>
+        <div className="space-y-1">
+          <Label className="text-xs">Summary</Label>
+          <textarea className={textarea} rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Body</Label>
+          <textarea
+            className={cn(textarea, 'min-h-[40vh]')}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t bg-muted/50 p-4">
+        <Button variant="ghost" onClick={() => act('rejected')} disabled={saving}>Reject</Button>
+        <Button variant="outline" onClick={() => act()} disabled={saving || !dirty}>Save</Button>
+        <Button variant="outline" onClick={() => act('reviewed')} disabled={saving}>Save &amp; mark reviewed</Button>
+        <Button onClick={() => act('approved')} disabled={saving}>Save &amp; approve</Button>
+      </div>
+    </div>
   );
 }
 
@@ -173,6 +180,21 @@ export default function ContentPage() {
   const [statusFilter, setStatusFilter] = useState('new');
   const [leagueFilter, setLeagueFilter] = useState('all');
   const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  // Slide-over review panel. `panelOpen` drives the slide transition; `editing`
+  // is cleared after the exit animation so the panel content unmounts fresh.
+  const [editing, setEditing] = useState<ContentItem | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function openPanel(item: ContentItem) {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setEditing(item);
+    setPanelOpen(true);
+  }
+  function closePanel() {
+    setPanelOpen(false);
+    closeTimer.current = setTimeout(() => setEditing(null), 220);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,7 +240,12 @@ export default function ContentPage() {
   return (
     <div className="flex flex-col flex-1">
       <AppNav />
-      <div className="p-6 max-w-7xl w-full mx-auto space-y-4">
+      <div
+        className={cn(
+          'w-full space-y-4 p-6 transition-[padding] duration-200',
+          panelOpen && 'lg:pr-[37rem]',
+        )}
+      >
         <div>
           <h1 className="text-xl font-semibold">Generated content</h1>
           <p className="text-sm text-muted-foreground">
@@ -321,7 +348,13 @@ export default function ContentPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-1 justify-end items-center">
-                          <ReviewDialog item={item} onChanged={load} />
+                          <Button
+                            size="sm"
+                            variant={editing?.id === item.id && panelOpen ? 'secondary' : 'ghost'}
+                            onClick={() => openPanel(item)}
+                          >
+                            View / edit
+                          </Button>
                           {item.status !== 'approved' && (
                             <Button size="sm" variant="ghost" onClick={() => rowAct(item.id, 'approved')}>Approve</Button>
                           )}
@@ -338,6 +371,19 @@ export default function ContentPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Slide-over review/edit panel — docks on the right and splits the view. */}
+      <aside
+        aria-hidden={!panelOpen}
+        className={cn(
+          'fixed right-0 top-0 z-40 flex h-dvh w-full flex-col border-l bg-background shadow-xl transition-transform duration-200 lg:w-[36rem]',
+          panelOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+        )}
+      >
+        {editing && (
+          <ReviewPanel key={editing.id} item={editing} onClose={closePanel} onChanged={load} />
+        )}
+      </aside>
     </div>
   );
 }
