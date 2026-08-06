@@ -443,8 +443,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
     ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
     ctx.awayDepartures ? `${ctx.away.name} notable departures: ${ctx.awayDepartures}.` : '',
-    ctx.homeDraftPicks ? `${ctx.home.name} recent top draft pick(s) — may debut this season if signed/rostered: ${ctx.homeDraftPicks}.` : '',
-    ctx.awayDraftPicks ? `${ctx.away.name} recent top draft pick(s) — may debut this season if signed/rostered: ${ctx.awayDraftPicks}.` : '',
+    ctx.homeDraftPicks ? `${ctx.home.name} recent top draft pick(s): ${ctx.homeDraftPicks}.` : '',
+    ctx.awayDraftPicks ? `${ctx.away.name} recent top draft pick(s): ${ctx.awayDraftPicks}.` : '',
   ].filter(Boolean).join('\n');
 
   const prompt = await loadSystemPrompt('game_preview.opener');
