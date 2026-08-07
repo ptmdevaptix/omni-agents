@@ -340,7 +340,12 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
     });
   }
   const addedGoalie = enriched.find((n) => n.pos === 'G') ?? null;
-  const newcomers = enriched.filter((n) => n.pos !== 'G').slice(0, 4);
+  // Established (already-NHL) skater additions only. Rostered rookies making
+  // their debut are deliberately excluded: preseason rosters are unreliable and
+  // announcing a rookie's debut is an easy, embarrassing error. The only debut
+  // claims allowed come from the draft-pick path (fmtPick), which reserves them
+  // for the handful of near-locks (signed NCAA under-20s).
+  const newcomers = enriched.filter((n) => n.pos !== 'G' && !n.debut).slice(0, 4);
 
   // Returning skater leaders (goaltending handled separately, below).
   const keySk = (stats?.skaters ?? [])
@@ -463,16 +468,14 @@ export async function buildOpenerContext(
   const targetIsHome = opener.homeTeam.abbrev === teamAbbr;
   const weekday = new Date(`${opener.gameDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long' });
 
-  // Debut framing is only valid for the team whose opener this is. When it's a
-  // one-sided opener, the opponent has already played games, so any rookie debut
-  // has already happened — drop the opponent's draft picks entirely and strip
-  // debut newcomers from the opponent's additions.
+  // A confident debut (via fmtPick) is only valid for the team whose opener this
+  // is. In a one-sided opener the opponent has already played, so any debut has
+  // happened — drop the opponent's draft picks entirely. (Additions carry no
+  // debut claims: rostered rookies are excluded upstream.)
   const homePicksShown = openerForBoth || targetIsHome ? homePicks : [];
   const awayPicksShown = openerForBoth || !targetIsHome ? awayPicks : [];
-  const fmtAdds = (list: Newcomer[], suppressDebuts: boolean) =>
-    (suppressDebuts ? list.filter((n) => !n.debut) : list).map(fmtNewcomer).join('; ');
-  const homeAdditions = fmtAdds(homeTeamCtx.newcomers, !openerForBoth && !targetIsHome);
-  const awayAdditions = fmtAdds(awayTeamCtx.newcomers, !openerForBoth && targetIsHome);
+  const homeAdditions = homeTeamCtx.newcomers.map(fmtNewcomer).join('; ');
+  const awayAdditions = awayTeamCtx.newcomers.map(fmtNewcomer).join('; ');
 
   // Head-to-head last season (regular season only). State an explicit winner so
   // the model never has to infer it from raw scores (it gets that wrong).
