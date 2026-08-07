@@ -90,16 +90,19 @@ function ReviewPanel({
   onClose,
   onChanged,
   onDirtyChange,
+  onRegenerate,
 }: {
   item: ContentItem;
   onClose: () => void;
   onChanged: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  onRegenerate: (id: number) => Promise<void>;
 }) {
   const [title, setTitle] = useState(item.title ?? '');
   const [summary, setSummary] = useState(item.summary ?? '');
   const [body, setBody] = useState(item.body);
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const dirty =
     title !== (item.title ?? '') || summary !== (item.summary ?? '') || body !== item.body;
@@ -123,6 +126,14 @@ function ReviewPanel({
     }
     setSaving(false);
     onChanged();
+    onClose();
+  }
+
+  async function regenerate() {
+    if (dirty && !window.confirm('Discard your edits and regenerate this preview from the current prompt?')) return;
+    setRegenerating(true);
+    await onRegenerate(item.id);
+    setRegenerating(false);
     onClose();
   }
 
@@ -168,11 +179,16 @@ function ReviewPanel({
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-end gap-2 border-t bg-muted/50 p-4">
-        <Button variant="ghost" onClick={() => act('rejected')} disabled={saving}>Reject</Button>
-        <Button variant="outline" onClick={() => act()} disabled={saving || !dirty}>Save</Button>
-        <Button variant="outline" onClick={() => act('reviewed')} disabled={saving}>Save &amp; mark reviewed</Button>
-        <Button onClick={() => act('approved')} disabled={saving}>Save &amp; approve</Button>
+      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/50 p-4">
+        <Button variant="ghost" onClick={regenerate} disabled={saving || regenerating}>
+          {regenerating ? 'Regenerating…' : 'Regenerate'}
+        </Button>
+        <div className="ml-auto flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={() => act('rejected')} disabled={saving || regenerating}>Reject</Button>
+          <Button variant="outline" onClick={() => act()} disabled={saving || regenerating || !dirty}>Save</Button>
+          <Button variant="outline" onClick={() => act('reviewed')} disabled={saving || regenerating}>Save &amp; mark reviewed</Button>
+          <Button onClick={() => act('approved')} disabled={saving || regenerating}>Save &amp; approve</Button>
+        </div>
       </div>
     </div>
   );
@@ -213,6 +229,12 @@ export default function ContentPage() {
     closeTimer.current = setTimeout(() => setEditing(null), 220);
   }
 
+  // Regeneration (after prompt edits). Single item, or all teams' next games with
+  // a client-driven progress bar.
+  const [regen, setRegen] = useState<{ running: boolean; done: number; total: number }>({
+    running: false, done: 0, total: 0,
+  });
+
   const load = useCallback(async () => {
     setLoading(true);
     const res = await fetch('/api/admin/content');
@@ -225,6 +247,32 @@ export default function ContentPage() {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const regenerateOne = useCallback(async (id: number) => {
+    await fetch('/api/admin/content/regenerate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    await load();
+  }, [load]);
+  async function regenerateAll() {
+    if (!window.confirm("Regenerate every team's next-game preview? This overwrites the current text and resets those items to New.")) return;
+    const plan: { target: string }[] = (await fetch('/api/admin/content/regenerate').then((r) => r.json())).plan ?? [];
+    setRegen({ running: true, done: 0, total: plan.length });
+    for (const p of plan) {
+      try {
+        await fetch('/api/admin/content/regenerate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: p.target }),
+        });
+      } catch { /* keep going; one failure shouldn't stop the batch */ }
+      setRegen((s) => ({ ...s, done: s.done + 1 }));
+    }
+    setRegen((s) => ({ ...s, running: false }));
+    await load();
+  }
 
   // Sort key: the game's start time (date + time) so previews list soonest-first;
   // fall back to the stored date, then generation time for non-game content.
@@ -272,13 +320,33 @@ export default function ContentPage() {
           panelOpen && 'lg:pr-[37rem]',
         )}
       >
-        <div>
-          <h1 className="text-xl font-semibold">Generated content</h1>
-          <p className="text-sm text-muted-foreground">
-            {statusCounts.new ?? 0} new · {statusCounts.reviewed ?? 0} reviewed ·{' '}
-            {statusCounts.approved ?? 0} approved · {statusCounts.rejected ?? 0} rejected
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold">Generated content</h1>
+            <p className="text-sm text-muted-foreground">
+              {statusCounts.new ?? 0} new · {statusCounts.reviewed ?? 0} reviewed ·{' '}
+              {statusCounts.approved ?? 0} approved · {statusCounts.rejected ?? 0} rejected
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={regenerateAll} disabled={regen.running}>
+            {regen.running ? `Regenerating ${regen.done}/${regen.total}…` : 'Regenerate all'}
+          </Button>
         </div>
+
+        {regen.running && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Regenerating next-game previews…</span>
+              <span>{regen.done}/{regen.total}</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${regen.total ? Math.round((regen.done / regen.total) * 100) : 0}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3 items-end">
           <div className="space-y-1">
@@ -418,6 +486,7 @@ export default function ContentPage() {
             onClose={closePanel}
             onChanged={load}
             onDirtyChange={reportDirty}
+            onRegenerate={regenerateOne}
           />
         )}
       </SlideOver>

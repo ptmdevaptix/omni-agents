@@ -618,3 +618,77 @@ export async function saveGamePreview(
     .single();
   return { outcome: 'inserted', id: inserted!.id };
 }
+
+// ---- Batch/UI regeneration helpers ----
+
+/** Current 32 NHL franchises (abbrevs). */
+export const NHL_TEAMS = [
+  'ANA', 'BOS', 'BUF', 'CAR', 'CBJ', 'CGY', 'CHI', 'COL', 'DAL', 'DET',
+  'EDM', 'FLA', 'LAK', 'MIN', 'MTL', 'NJD', 'NSH', 'NYI', 'NYR', 'OTT',
+  'PHI', 'PIT', 'SJS', 'SEA', 'STL', 'TBL', 'TOR', 'UTA', 'VAN', 'VGK',
+  'WPG', 'WSH',
+];
+
+export interface OpenerPlanEntry {
+  gameId: number;
+  target: string; // team POV to build the preview from
+  home: string;
+  away: string;
+}
+
+/**
+ * Each team's first upcoming regular-season game, deduped by game id (shared
+ * openers appear once). `target` is the POV team to build from. This is the work
+ * list for a "regenerate all" run.
+ */
+export async function planOpenerTargets(season = '20262027'): Promise<OpenerPlanEntry[]> {
+  const byGame = new Map<number, OpenerPlanEntry>();
+  for (const abbr of NHL_TEAMS) {
+    try {
+      const sched = await seasonSchedule(abbr, season);
+      const opener = sched
+        .filter((g) => g.gameType === 2)
+        .sort((a, b) => a.gameDate.localeCompare(b.gameDate))[0];
+      if (!opener || byGame.has(opener.id)) continue;
+      byGame.set(opener.id, {
+        gameId: opener.id,
+        target: abbr,
+        home: opener.homeTeam.abbrev,
+        away: opener.awayTeam.abbrev,
+      });
+    } catch {
+      // skip a team whose schedule can't be fetched
+    }
+  }
+  return [...byGame.values()];
+}
+
+/** Build → generate → save an opener preview for a team's opener. */
+export async function regenerateOpener(
+  teamAbbr: string,
+): Promise<{ gameId: number; id: number; title: string; outcome: 'inserted' | 'updated' }> {
+  const ctx = await buildOpenerContext(teamAbbr);
+  const preview = await generateOpenerPreview(ctx);
+  const res = await saveGamePreview(ctx, preview);
+  return { gameId: ctx.gameId, id: res.id, title: preview.title, outcome: res.outcome };
+}
+
+/**
+ * Regenerate the preview for one existing game_preview row, picking whichever of
+ * its two teams actually has this game as its opener as the POV.
+ */
+export async function regenerateGameForRow(
+  gameId: number,
+  homeAbbr: string,
+  awayAbbr: string,
+): Promise<{ id: number; title: string }> {
+  for (const abbr of [homeAbbr, awayAbbr].filter(Boolean)) {
+    const ctx = await buildOpenerContext(abbr);
+    if (ctx.gameId === gameId) {
+      const preview = await generateOpenerPreview(ctx);
+      const res = await saveGamePreview(ctx, preview);
+      return { id: res.id, title: preview.title };
+    }
+  }
+  throw new Error(`Could not resolve a POV team whose opener is game ${gameId}`);
+}
