@@ -13,22 +13,26 @@ export async function GET() {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  // Count articles per source
-  const { data: articleCounts } = await supabase
-    .from('articles')
-    .select('source_id')
-    .then(({ data }) => {
-      const counts: Record<number, number> = {};
-      data?.forEach((a) => {
-        counts[a.source_id] = (counts[a.source_id] || 0) + 1;
-      });
-      return { data: counts };
-    });
+  // Count articles per source. A plain `select('source_id')` is capped at 1000
+  // rows by PostgREST, which silently undercounts once the table grows past that
+  // (it did — >10k rows), so most feeds showed 0. Use an exact head-count per
+  // distinct source instead.
+  const sourceIds = [...new Set((data ?? []).map((f) => f.source_id).filter((v): v is number => v != null))];
+  const countPairs = await Promise.all(
+    sourceIds.map(async (sid) => {
+      const { count } = await supabase
+        .from('articles')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_id', sid);
+      return [sid, count ?? 0] as const;
+    }),
+  );
+  const articleCounts: Record<number, number> = Object.fromEntries(countPairs);
 
   // Attach article count to each feed based on its source_id
   const feedsWithCounts = data?.map((f) => ({
     ...f,
-    article_count: articleCounts?.[f.source_id] ?? 0,
+    article_count: articleCounts[f.source_id] ?? 0,
   }));
 
   // Also return sources and leagues for the add/edit forms
