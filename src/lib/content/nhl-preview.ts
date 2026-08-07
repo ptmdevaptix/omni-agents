@@ -279,7 +279,7 @@ function fmtPick(p: DraftPick): string {
 
 export interface TeamContext {
   keyPlayers: string;
-  additions: string;
+  newcomers: Newcomer[];
   departures: string;
   goaltending: string;
 }
@@ -294,7 +294,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       currentRoster(abbr),
     ]);
   } catch {
-    return { keyPlayers: '', additions: '', departures: '', goaltending: '' };
+    return { keyPlayers: '', newcomers: [], departures: '', goaltending: '' };
   }
   const rosterIds = new Set(roster.map((p) => p.id));
   const lastIds = new Set([...(stats?.skaters ?? []), ...(stats?.goalies ?? [])].map((s) => s.playerId));
@@ -317,7 +317,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
     });
   }
   const addedGoalie = enriched.find((n) => n.pos === 'G') ?? null;
-  const additions = enriched.filter((n) => n.pos !== 'G').slice(0, 4).map(fmtNewcomer);
+  const newcomers = enriched.filter((n) => n.pos !== 'G').slice(0, 4);
 
   // Returning skater leaders (goaltending handled separately, below).
   const keySk = (stats?.skaters ?? [])
@@ -356,7 +356,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
 
   return {
     keyPlayers: keySk.join('; '),
-    additions: additions.join('; '),
+    newcomers,
     departures: departures.join('; '),
     goaltending,
   };
@@ -427,10 +427,10 @@ export async function buildOpenerContext(
     return { ...p, signed: c?.signed, aav: c?.aavLabel };
   };
   const homePicks = draftPicks
-    .filter((p) => p.team === homeAbbr && !homeTeamCtx.additions.includes(p.name))
+    .filter((p) => p.team === homeAbbr && !homeTeamCtx.newcomers.some((n) => n.name === p.name))
     .map((p) => enrich(p, homeCap));
   const awayPicks = draftPicks
-    .filter((p) => p.team === awayAbbr && !awayTeamCtx.additions.includes(p.name))
+    .filter((p) => p.team === awayAbbr && !awayTeamCtx.newcomers.some((n) => n.name === p.name))
     .map((p) => enrich(p, awayCap));
 
   // Is this also the opponent's first game? (Season openers usually are, but the
@@ -440,11 +440,16 @@ export async function buildOpenerContext(
   const targetIsHome = opener.homeTeam.abbrev === teamAbbr;
   const weekday = new Date(`${opener.gameDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long' });
 
-  // Draft-pick debut framing is only valid for the team whose opener this is.
-  // When it's a one-sided opener, the opponent has already played games, so any
-  // rookie debut has already happened — drop the opponent's picks entirely.
+  // Debut framing is only valid for the team whose opener this is. When it's a
+  // one-sided opener, the opponent has already played games, so any rookie debut
+  // has already happened — drop the opponent's draft picks entirely and strip
+  // debut newcomers from the opponent's additions.
   const homePicksShown = openerForBoth || targetIsHome ? homePicks : [];
   const awayPicksShown = openerForBoth || !targetIsHome ? awayPicks : [];
+  const fmtAdds = (list: Newcomer[], suppressDebuts: boolean) =>
+    (suppressDebuts ? list.filter((n) => !n.debut) : list).map(fmtNewcomer).join('; ');
+  const homeAdditions = fmtAdds(homeTeamCtx.newcomers, !openerForBoth && !targetIsHome);
+  const awayAdditions = fmtAdds(awayTeamCtx.newcomers, !openerForBoth && targetIsHome);
 
   // Head-to-head last season (regular season only). State an explicit winner so
   // the model never has to infer it from raw scores (it gets that wrong).
@@ -486,8 +491,8 @@ export async function buildOpenerContext(
     awayKeyPlayers: awayTeamCtx.keyPlayers,
     homeGoaltending: homeTeamCtx.goaltending,
     awayGoaltending: awayTeamCtx.goaltending,
-    homeAdditions: homeTeamCtx.additions,
-    awayAdditions: awayTeamCtx.additions,
+    homeAdditions,
+    awayAdditions,
     homeDepartures: homeTeamCtx.departures,
     awayDepartures: awayTeamCtx.departures,
     homeDraftPicks: homePicksShown.map(fmtPick).join('; '),
