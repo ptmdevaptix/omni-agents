@@ -281,6 +281,7 @@ export interface TeamContext {
   keyPlayers: string;
   additions: string;
   departures: string;
+  goaltending: string;
 }
 
 /** Returning leaders + offseason additions (enriched) + notable departures. */
@@ -293,20 +294,20 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       currentRoster(abbr),
     ]);
   } catch {
-    return { keyPlayers: '', additions: '', departures: '' };
+    return { keyPlayers: '', additions: '', departures: '', goaltending: '' };
   }
   const rosterIds = new Set(roster.map((p) => p.id));
   const lastIds = new Set([...(stats?.skaters ?? []), ...(stats?.goalies ?? [])].map((s) => s.playerId));
   const haveRoster = rosterIds.size > 0;
   const onRoster = (id: number) => !haveRoster || rosterIds.has(id);
 
-  // Additions first — so we can skip a returning goalie when a new one arrived.
-  let additions: string[] = [];
+  // Enrich offseason additions. Keep the full list so we can pull out an added
+  // goaltender for the goaltending summary and keep the additions line skaters.
+  let enriched: Newcomer[] = [];
   if (haveRoster) {
     const newIds = roster.filter((p) => !lastIds.has(p.id)).slice(0, 16).map((p) => p.id);
-    const enriched = (await Promise.all(newIds.map((id) => enrichNewcomer(id, lastSeason)))).filter(
-      (n): n is Newcomer => !!n,
-    )
+    enriched = (await Promise.all(newIds.map((id) => enrichNewcomer(id, lastSeason))))
+      .filter((n): n is Newcomer => !!n)
       // Drop minor-league/depth pickups (played last season in the AHL/ECHL and
       // not making an NHL debut) — they're not roster storylines for a preview.
       .filter((n) => !(n.priorLeague && /^(AHL|ECHL)$/i.test(n.priorLeague) && !n.debut));
@@ -314,43 +315,51 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       const rank = (n: Newcomer) => (n.pos === 'G' ? 3 : 0) + (n.debut ? 2 : 0) + (n.priorPoints ?? 0) / 200;
       return rank(b) - rank(a);
     });
-    additions = enriched.slice(0, 4).map(fmtNewcomer);
   }
-  const addedGoalie = additions.some((a) => a.includes('(G)'));
+  const addedGoalie = enriched.find((n) => n.pos === 'G') ?? null;
+  const additions = enriched.filter((n) => n.pos !== 'G').slice(0, 4).map(fmtNewcomer);
 
-  // Returning leaders.
+  // Returning skater leaders (goaltending handled separately, below).
   const keySk = (stats?.skaters ?? [])
     .filter((s) => onRoster(s.playerId))
     .sort((a, b) => b.points - a.points)
     .slice(0, 3)
     .map((s) => `${playerName(s)} (${s.goals}G-${s.assists}A-${s.points}P)`);
-  const keyParts = [...keySk];
-  const keyG = (stats?.goalies ?? [])
-    .filter((g) => onRoster(g.playerId))
-    .sort((a, b) => b.gamesPlayed - a.gamesPlayed)[0];
-  if (keyG && !addedGoalie) {
-    keyParts.push(
-      `goaltender ${playerName(keyG)} (${keyG.wins}W, ${Number(keyG.goalsAgainstAverage).toFixed(2)} GAA, ${Number(keyG.savePercentage).toFixed(3)} SV%)`,
-    );
+
+  // Goaltending, stated explicitly so the preview never mistakes a backup
+  // signing for a new #1: does last season's most-used goalie return (he's still
+  // the starter; any arrival is only depth), or did he leave (the crease opens
+  // for an arrival)?
+  const goaliesByGp = (stats?.goalies ?? []).slice().sort((a, b) => b.gamesPlayed - a.gamesPlayed);
+  const topG = goaliesByGp[0] ?? null;
+  const topGReturns = topG ? onRoster(topG.playerId) : false;
+  let goaltending = '';
+  if (topG && topGReturns) {
+    goaltending = `${playerName(topG)} (${topG.wins} wins, ${Number(topG.savePercentage).toFixed(3)} SV% last season) returns as the starter`;
+    goaltending += addedGoalie
+      ? `; ${addedGoalie.name} was signed only as backup depth behind him — he does NOT take over the crease.`
+      : '.';
+  } else if (topG && !topGReturns) {
+    goaltending = addedGoalie
+      ? `Last season's most-used goaltender, ${playerName(topG)}, is gone; ${addedGoalie.name} was brought in and is expected to take over the crease.`
+      : `Last season's most-used goaltender, ${playerName(topG)}, is gone, leaving the starting job unsettled.`;
   }
 
-  // Notable departures (last season's roster, gone now).
+  // Notable skater departures (goalies are covered by the goaltending line).
   const departures = haveRoster
-    ? [
-        ...(stats?.skaters ?? [])
-          .filter((s) => !rosterIds.has(s.playerId) && s.points >= 15)
-          .sort((a, b) => b.points - a.points)
-          .slice(0, 3)
-          .map((s) => `${playerName(s)} (${s.points} pts)`),
-        ...(stats?.goalies ?? [])
-          .filter((g) => !rosterIds.has(g.playerId) && g.gamesPlayed >= 20)
-          .sort((a, b) => b.gamesPlayed - a.gamesPlayed)
-          .slice(0, 1)
-          .map((g) => `${playerName(g)} (G)`),
-      ]
+    ? (stats?.skaters ?? [])
+        .filter((s) => !rosterIds.has(s.playerId) && s.points >= 15)
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 3)
+        .map((s) => `${playerName(s)} (${s.points} pts)`)
     : [];
 
-  return { keyPlayers: keyParts.join('; '), additions: additions.join('; '), departures: departures.join('; ') };
+  return {
+    keyPlayers: keySk.join('; '),
+    additions: additions.join('; '),
+    departures: departures.join('; '),
+    goaltending,
+  };
 }
 
 export interface OpenerContext {
@@ -370,6 +379,8 @@ export interface OpenerContext {
   awaySummary: string;
   homeKeyPlayers: string;
   awayKeyPlayers: string;
+  homeGoaltending: string;
+  awayGoaltending: string;
   homeAdditions: string;
   awayAdditions: string;
   homeDepartures: string;
@@ -466,6 +477,8 @@ export async function buildOpenerContext(
     awaySummary: summarize(teamName(opener.awayTeam), opener.awayTeam.abbrev === teamAbbr ? teamLast : oppLast, awayAbbr),
     homeKeyPlayers: homeTeamCtx.keyPlayers,
     awayKeyPlayers: awayTeamCtx.keyPlayers,
+    homeGoaltending: homeTeamCtx.goaltending,
+    awayGoaltending: awayTeamCtx.goaltending,
     homeAdditions: homeTeamCtx.additions,
     awayAdditions: awayTeamCtx.additions,
     homeDepartures: homeTeamCtx.departures,
@@ -504,6 +517,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awaySummary,
     ctx.homeKeyPlayers ? `${ctx.home.name} key returning players (last season's stats): ${ctx.homeKeyPlayers}.` : '',
     ctx.awayKeyPlayers ? `${ctx.away.name} key returning players (last season's stats): ${ctx.awayKeyPlayers}.` : '',
+    ctx.homeGoaltending ? `${ctx.home.name} goaltending: ${ctx.homeGoaltending}` : '',
+    ctx.awayGoaltending ? `${ctx.away.name} goaltending: ${ctx.awayGoaltending}` : '',
     ctx.homeAdditions ? `${ctx.home.name} offseason additions: ${ctx.homeAdditions}.` : '',
     ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
     ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
@@ -514,12 +529,27 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
 
   const prompt = await loadSystemPrompt('game_preview.opener');
 
-  const { output } = await generateText({
-    model: gateway(PREVIEW_MODEL),
-    system: prompt.system,
-    output: Output.object({ schema: previewSchema }),
-    prompt: `Write the game preview from these facts:\n\n${facts}`,
-  });
+  // The model occasionally returns a malformed object (e.g. wrapped in a
+  // "parameters" envelope) that fails schema validation. Retry a few times.
+  let output: { summary: string; body: string } | undefined;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await generateText({
+        model: gateway(PREVIEW_MODEL),
+        system: prompt.system,
+        output: Output.object({ schema: previewSchema }),
+        prompt: `Write the game preview from these facts:\n\n${facts}`,
+      });
+      if (res.output?.summary && res.output?.body) {
+        output = res.output;
+        break;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!output) throw lastErr ?? new Error('generation produced no valid object after retries');
 
   const prettyDate = new Date(`${ctx.date}T12:00:00Z`).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
