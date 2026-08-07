@@ -208,12 +208,12 @@ function fmtNewcomer(n: Newcomer): string {
 }
 
 // ---- Recent draft (high picks) + signing status from capspace ----
-interface DraftPick { overall: number; team: string; name: string; pos: string; club?: string; league?: string; signed?: boolean; aav?: string; }
+interface DraftPick { overall: number; team: string; name: string; pos: string; club?: string; league?: string; signed?: boolean; aav?: string; age?: number; }
 
 const capNorm = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
-interface CapPlayer { name?: string; signed?: boolean; aavLabel?: string }
+interface CapPlayer { name?: string; signed?: boolean; aavLabel?: string; age?: number }
 
 /** Signing status per player from cached capspace-org data (whether a pick is on an NHL ELC). */
 async function capspaceSigned(teamAbbr: string): Promise<Map<string, CapPlayer>> {
@@ -258,21 +258,44 @@ async function topDraftPicks(draftYear: string, teams: Set<string>, maxOverall =
   }
 }
 
-// Signed non-Euro (CHL/NCAA/US-junior) picks can't be assigned to the AHL and
-// can't return to junior/college — NHL debut expected. Signed Euro picks may
-// open in the AHL. Unsigned picks aren't assumed to play. Computed here (not by
-// the model) so the fact states the conclusion directly.
-const EURO_LEAGUES = /SHL|LIIGA|KHL|MHL|VHL|ALLSVENSKAN|NL$|DEL|EXTRALIGA|CZECH|SWISS|INTERNATIONAL|EURO/i;
+// Whether a signed draft pick will actually debut depends on his origin AND age
+// (computed here so the fact states the conclusion; the model doesn't infer it):
+//  - NCAA: signing forfeits college eligibility, so he plays in North America.
+//    Under 20 he's too young for the AHL → NHL debut expected. 20+ → NHL or AHL.
+//  - CHL (WHL/OHL/QMJHL): the ELC is "slide-eligible" — he usually goes back to
+//    junior for the year rather than debut. Do not assume a debut.
+//  - Europe: also slide-eligible — he often stays overseas or opens in the AHL.
+//    Do not assume a debut.
+// Only a small handful (mainly signed NCAA under-20s) are near-locks to debut.
+type DraftOrigin = 'ncaa' | 'chl' | 'euro' | 'other';
+function draftOrigin(league?: string): DraftOrigin {
+  const L = (league ?? '').toUpperCase();
+  if (/\b(OHL|WHL|QMJHL)\b/.test(L)) return 'chl';
+  if (/BIG ?10|BIG ?TEN|NCHC|H-?EAST|HOCKEY EAST|ECAC|ATLANTIC HOCKEY|\bAHA\b|CCHA|\bNCAA\b|USHL|NTDP|NAHL/.test(L)) return 'ncaa';
+  if (/SWEDEN|FINLAND|GERMANY|CZECH|SLOVAK|SWISS|RUSSIA|KHL|SHL|LIIGA|\bDEL\b|NORWAY|DENMARK|EUROPE|INTERNATIONAL|BELARUS|LATVIA|ALLSVENSKAN|EXTRALIGA/.test(L)) return 'euro';
+  return 'other';
+}
 
 function fmtPick(p: DraftPick): string {
   const from = p.club ? `, from ${p.club}${p.league ? ` (${p.league})` : ''}` : '';
+  const elc = `signed an NHL entry-level contract${p.aav ? ` (${p.aav} AAV)` : ''}`;
   let note: string;
   if (p.signed !== true) {
-    note = 'NOT signed to an NHL contract — do not assume an NHL debut; unsigned picks usually return to junior, college, or their European club';
-  } else if (p.league && EURO_LEAGUES.test(p.league)) {
-    note = `signed to an NHL entry-level contract${p.aav ? ` (${p.aav} AAV)` : ''}; coming from Europe he could open in the AHL, so an NHL debut is likely but not certain`;
+    note = 'has NOT signed an NHL contract — do not assume an NHL debut; unsigned picks usually return to junior, college, or their European club';
   } else {
-    note = `signed to an NHL entry-level contract${p.aav ? ` (${p.aav} AAV)` : ''}; as a North American junior/college player he cannot be assigned to the AHL or return to junior/college, so his NHL debut is expected barring injury or a healthy scratch`;
+    const origin = draftOrigin(p.league);
+    const under20 = typeof p.age === 'number' && p.age < 20;
+    if (origin === 'ncaa') {
+      note = under20
+        ? `${elc}; as an NCAA player who has turned pro he cannot return to college and is too young for the AHL, so he is expected to make his NHL debut`
+        : `${elc}; as an NCAA player who has turned pro he will play in North America (NHL or AHL) and is a real candidate to make his NHL debut`;
+    } else if (origin === 'chl') {
+      note = `${elc}, but as a major-junior (CHL) player the deal is slide-eligible — he is more likely to be returned to junior for the season than to stick, so do NOT assume an NHL debut`;
+    } else if (origin === 'euro') {
+      note = `${elc}, but the deal is slide-eligible — European signees often remain overseas or start in the AHL, so do NOT assume an NHL debut this season`;
+    } else {
+      note = `${elc}, but whether he debuts in the NHL this season is uncertain — do not assume it`;
+    }
   }
   return `${p.name} (${ordinal(p.overall)} overall${p.pos ? `, ${p.pos}` : ''}${from}) — ${note}`;
 }
@@ -424,7 +447,7 @@ export async function buildOpenerContext(
   // (covered by additions as a debut).
   const enrich = (p: DraftPick, cap: Map<string, CapPlayer>): DraftPick => {
     const c = cap.get(capNorm(p.name));
-    return { ...p, signed: c?.signed, aav: c?.aavLabel };
+    return { ...p, signed: c?.signed, aav: c?.aavLabel, age: c?.age };
   };
   const homePicks = draftPicks
     .filter((p) => p.team === homeAbbr && !homeTeamCtx.newcomers.some((n) => n.name === p.name))
