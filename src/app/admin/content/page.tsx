@@ -355,10 +355,27 @@ export default function ContentPage() {
                     {items.length === 0 ? 'No generated content yet.' : 'No items match the filters.'}
                   </TableCell></TableRow>
                 ) : (
-                  filtered.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleOne(item.id)} aria-label="Select row" />
+                  filtered.map((item) => {
+                    const isOpen = panelOpen && editing?.id === item.id;
+                    return (
+                    <TableRow
+                      key={item.id}
+                      onClick={() => openPanel(item)}
+                      aria-selected={isOpen}
+                      className={cn(
+                        'cursor-pointer hover:bg-muted',
+                        isOpen && 'bg-accent hover:bg-accent',
+                      )}
+                    >
+                      <TableCell className="relative">
+                        {isOpen && <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />}
+                        <input
+                          type="checkbox"
+                          checked={selected.has(item.id)}
+                          onChange={() => toggleOne(item.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="Select row"
+                        />
                       </TableCell>
                       <TableCell className="text-sm">
                         {TYPE_LABEL[item.content_type] ?? item.content_type}
@@ -373,14 +390,7 @@ export default function ContentPage() {
                         {new Date(item.generated_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex gap-1 justify-end items-center">
-                          <Button
-                            size="sm"
-                            variant={editing?.id === item.id && panelOpen ? 'secondary' : 'ghost'}
-                            onClick={() => openPanel(item)}
-                          >
-                            View / edit
-                          </Button>
+                        <div className="flex gap-1 justify-end items-center" onClick={(e) => e.stopPropagation()}>
                           {item.status !== 'approved' && (
                             <Button size="sm" variant="ghost" onClick={() => rowAct(item.id, 'approved')}>Approve</Button>
                           )}
@@ -390,7 +400,8 @@ export default function ContentPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
