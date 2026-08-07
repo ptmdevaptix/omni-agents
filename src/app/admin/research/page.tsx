@@ -500,7 +500,7 @@ function NotesCell({ item, onSaved }: { item: Item; onSaved: () => void }) {
       <button
         type="button"
         className="text-xs text-muted-foreground hover:text-foreground underline"
-        onClick={() => setOpen(true)}
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
       >
         {item.state?.notes || item.state?.assignee ? 'edit' : 'add'}
       </button>
@@ -924,9 +924,22 @@ export default function ResearchPage() {
                         {items.length === 0 ? 'Queue is empty — the omni-hockey detector hasn’t emitted candidates yet.' : 'No items match the filters.'}
                       </TableCell></TableRow>
                     ) : (
-                      visible.map((item) => (
-                        <TableRow key={item.dedup_key}>
-                          <TableCell className="text-muted-foreground">{item.priority}</TableCell>
+                      visible.map((item) => {
+                        const isOpen = panelOpen && resolving?.dedup_key === item.dedup_key;
+                        return (
+                        <TableRow
+                          key={item.dedup_key}
+                          onClick={item.orphaned ? undefined : () => openResolve(item)}
+                          aria-selected={isOpen}
+                          className={cn(
+                            !item.orphaned && 'cursor-pointer hover:bg-muted',
+                            isOpen && 'bg-accent hover:bg-accent',
+                          )}
+                        >
+                          <TableCell className="relative text-muted-foreground">
+                            {isOpen && <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />}
+                            {item.priority}
+                          </TableCell>
                           <TableCell><ReasonBadge reason={item.reason} /></TableCell>
                           <TableCell>
                             <div className="font-medium">
@@ -970,7 +983,7 @@ export default function ResearchPage() {
                             {item.orphaned ? (
                               <span className="text-xs text-green-600">resolved (data updated)</span>
                             ) : (
-                              <div className="flex gap-1 justify-end items-center">
+                              <div className="flex gap-1 justify-end items-center" onClick={(e) => e.stopPropagation()}>
                                 {effectiveStatus(item) === 'open' && (
                                   <Button size="sm" variant="ghost" onClick={() => setStatus(item, 'in_progress')}>Start</Button>
                                 )}
@@ -991,7 +1004,8 @@ export default function ResearchPage() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
