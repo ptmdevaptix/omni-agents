@@ -437,7 +437,14 @@ export async function buildOpenerContext(
   // target team's opener can be a mid-schedule game for the opponent.)
   const oppOpener = oppUpcoming.filter((g) => g.gameType === 2).sort((a, b) => a.gameDate.localeCompare(b.gameDate))[0];
   const openerForBoth = oppOpener?.id === opener.id;
+  const targetIsHome = opener.homeTeam.abbrev === teamAbbr;
   const weekday = new Date(`${opener.gameDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long' });
+
+  // Draft-pick debut framing is only valid for the team whose opener this is.
+  // When it's a one-sided opener, the opponent has already played games, so any
+  // rookie debut has already happened — drop the opponent's picks entirely.
+  const homePicksShown = openerForBoth || targetIsHome ? homePicks : [];
+  const awayPicksShown = openerForBoth || !targetIsHome ? awayPicks : [];
 
   // Head-to-head last season (regular season only). State an explicit winner so
   // the model never has to infer it from raw scores (it gets that wrong).
@@ -483,8 +490,8 @@ export async function buildOpenerContext(
     awayAdditions: awayTeamCtx.additions,
     homeDepartures: homeTeamCtx.departures,
     awayDepartures: awayTeamCtx.departures,
-    homeDraftPicks: homePicks.map(fmtPick).join('; '),
-    awayDraftPicks: awayPicks.map(fmtPick).join('; '),
+    homeDraftPicks: homePicksShown.map(fmtPick).join('; '),
+    awayDraftPicks: awayPicksShown.map(fmtPick).join('; '),
   };
 }
 
