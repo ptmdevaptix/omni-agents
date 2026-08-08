@@ -67,12 +67,12 @@ async function scoreArticle(
   for (const t of teams) {
     const rel = byName.get(norm(t.label));
     if (rel == null) continue;
-    const { error } = await sb
+    const { error, count } = await sb
       .from('article_teams')
-      .update({ relevance: Math.round(rel) })
+      .update({ relevance: Math.round(rel) }, { count: 'exact' })
       .eq('article_id', articleId)
       .eq('team_id', t.team_id);
-    if (!error) updated += 1;
+    if (!error) updated += count ?? 0; // count reflects rows actually persisted
   }
   return updated;
 }
@@ -112,6 +112,7 @@ async function main() {
 
   let done = 0;
   let failed = 0;
+  let linksWritten = 0;
   for (let i = 0; i < todo.length; i += CONCURRENCY) {
     const batch = todo.slice(i, i + CONCURRENCY);
     await Promise.all(
@@ -119,7 +120,7 @@ async function main() {
         const a = artMap.get(articleId);
         if (!a) return;
         try {
-          await scoreArticle(articleId, a.title, a.excerpt ?? '', teams);
+          linksWritten += await scoreArticle(articleId, a.title, a.excerpt ?? '', teams);
           done += 1;
         } catch {
           failed += 1;
@@ -127,11 +128,16 @@ async function main() {
       }),
     );
     if ((i / CONCURRENCY) % 10 === 0 || i + CONCURRENCY >= todo.length) {
-      console.log(`  ${Math.min(i + CONCURRENCY, todo.length)}/${todo.length} (failed: ${failed})`);
+      console.log(`  ${Math.min(i + CONCURRENCY, todo.length)}/${todo.length} (links written: ${linksWritten}, failed: ${failed})`);
     }
   }
 
-  console.log(`\nDone. Scored ${done} articles, ${failed} failed.`);
+  console.log(`\nDone. Processed ${done} articles, wrote ${linksWritten} relevance scores, ${failed} failed.`);
+  if (done > 0 && linksWritten === 0) {
+    console.log(
+      '\n⚠️  0 rows were persisted — the UPDATE was blocked. Apply migration 016 (article_teams UPDATE policy) and re-run.',
+    );
+  }
 }
 
 main()
