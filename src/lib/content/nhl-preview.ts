@@ -129,6 +129,32 @@ interface GoalieStat {
 const playerName = (p: { firstName?: { default: string }; lastName?: { default: string } }) =>
   [p.firstName?.default, p.lastName?.default].filter(Boolean).join(' ');
 
+// Major individual NHL trophies (offseason awards) worth calling out in a
+// preview. The landing's `awards` field also lists lesser honors, so filter.
+const MAJOR_TROPHIES = /Hart|Art Ross|Richard|Vezina|Norris|Calder|Conn Smythe|Selke|Ted Lindsay|Lady Byng|Masterton/i;
+
+/** Major trophies a player won in `lastSeason` (from their landing's awards). */
+async function playerAwardsLastSeason(
+  playerId: number,
+  lastSeason: string,
+): Promise<{ name: string; trophies: string[] }> {
+  try {
+    const l = await nhlGet<{
+      firstName?: { default: string };
+      lastName?: { default: string };
+      awards?: { trophy?: { default?: string }; seasons?: { seasonId?: number }[] }[];
+    }>(`/v1/player/${playerId}/landing`);
+    const yr = Number(lastSeason);
+    const trophies = (l.awards ?? [])
+      .filter((a) => (a.seasons ?? []).some((s) => s.seasonId === yr))
+      .map((a) => a.trophy?.default ?? '')
+      .filter((t) => t && MAJOR_TROPHIES.test(t));
+    return { name: playerName(l), trophies };
+  } catch {
+    return { name: '', trophies: [] };
+  }
+}
+
 interface RosterPlayer { id: number }
 async function currentRoster(abbr: string): Promise<RosterPlayer[]> {
   try {
@@ -305,6 +331,7 @@ export interface TeamContext {
   newcomers: Newcomer[];
   departures: string;
   goaltending: string;
+  awards: string;
 }
 
 /** Returning leaders + offseason additions (enriched) + notable departures. */
@@ -317,7 +344,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       currentRoster(abbr),
     ]);
   } catch {
-    return { keyPlayers: '', newcomers: [], departures: '', goaltending: '' };
+    return { keyPlayers: '', newcomers: [], departures: '', goaltending: '', awards: '' };
   }
   const rosterIds = new Set(roster.map((p) => p.id));
   const lastIds = new Set([...(stats?.skaters ?? []), ...(stats?.goalies ?? [])].map((s) => s.playerId));
@@ -373,6 +400,26 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       : `Last season's most-used goaltender, ${playerName(topG)}, is gone, leaving the starting job unsettled.`;
   }
 
+  // Major individual awards won last season by returning players (offseason
+  // storylines). Check the top scorers + returning starter — that covers most
+  // major trophies (Hart/Art Ross/Richard/Norris tend to be top scorers, Vezina
+  // is the goalie). The model has no award data otherwise, so we supply it.
+  const awardIds = [
+    ...(stats?.skaters ?? [])
+      .filter((s) => onRoster(s.playerId))
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 6)
+      .map((s) => s.playerId),
+    ...(topG && topGReturns ? [topG.playerId] : []),
+  ];
+  const awardResults = await Promise.all(
+    awardIds.map((id) => playerAwardsLastSeason(id, lastSeason)),
+  );
+  const awards = awardResults
+    .filter((r) => r.trophies.length > 0)
+    .map((r) => `${r.name} (${r.trophies.join(', ')})`)
+    .join('; ');
+
   // Notable skater departures (goalies are covered by the goaltending line).
   const departures = haveRoster
     ? (stats?.skaters ?? [])
@@ -387,6 +434,7 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
     newcomers,
     departures: departures.join('; '),
     goaltending,
+    awards,
   };
 }
 
@@ -409,6 +457,8 @@ export interface OpenerContext {
   awayKeyPlayers: string;
   homeGoaltending: string;
   awayGoaltending: string;
+  homeAwards: string;
+  awayAwards: string;
   homeAdditions: string;
   awayAdditions: string;
   homeDepartures: string;
@@ -517,6 +567,8 @@ export async function buildOpenerContext(
     awayKeyPlayers: awayTeamCtx.keyPlayers,
     homeGoaltending: homeTeamCtx.goaltending,
     awayGoaltending: awayTeamCtx.goaltending,
+    homeAwards: homeTeamCtx.awards,
+    awayAwards: awayTeamCtx.awards,
     homeAdditions,
     awayAdditions,
     homeDepartures: homeTeamCtx.departures,
@@ -557,6 +609,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awayKeyPlayers ? `${ctx.away.name} key returning players (last season's stats): ${ctx.awayKeyPlayers}.` : '',
     ctx.homeGoaltending ? `${ctx.home.name} goaltending: ${ctx.homeGoaltending}` : '',
     ctx.awayGoaltending ? `${ctx.away.name} goaltending: ${ctx.awayGoaltending}` : '',
+    ctx.homeAwards ? `${ctx.home.name} players who won a major NHL award last season: ${ctx.homeAwards}.` : '',
+    ctx.awayAwards ? `${ctx.away.name} players who won a major NHL award last season: ${ctx.awayAwards}.` : '',
     ctx.homeAdditions ? `${ctx.home.name} offseason additions: ${ctx.homeAdditions}.` : '',
     ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
     ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
