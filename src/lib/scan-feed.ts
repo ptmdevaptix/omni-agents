@@ -13,7 +13,20 @@ const articleAnalysisSchema = z.object({
     ),
   isGameRecap: z.boolean(),
   players: z.array(z.string()).describe('Full player names mentioned'),
-  teams: z.array(z.string()).describe('Team names mentioned'),
+  teams: z
+    .array(
+      z.object({
+        name: z.string(),
+        relevance: z
+          .number()
+          .min(0)
+          .max(100)
+          .describe(
+            "How central this team is to THIS article: 90-100 = the article is primarily about this team; 60-89 = significantly involved; 30-59 = a notable but secondary mention; 1-29 = a passing/historical mention (e.g. a player's former team). Judge by the article's focus, not how many times the team is named.",
+          ),
+      }),
+    )
+    .describe('Teams mentioned, each with a relevance score'),
   leagues: z
     .array(z.string())
     .describe('League names only if no teams referenced'),
@@ -144,20 +157,26 @@ export async function scanFeed(feedId: string): Promise<ScanResult> {
       const resolved = await resolveEntities(
         {
           players: analysis.players,
-          teams: analysis.teams,
+          teams: analysis.teams.map((t) => t.name),
           leagues: analysis.leagues,
         },
         leagueHint ?? undefined,
         feed.league_id ?? undefined,
       );
 
+      // Map each extracted team's relevance back to its resolved id.
+      const relByName = new Map(
+        analysis.teams.map((t) => [t.name.toLowerCase().trim().replace(/\s+/g, ' '), t.relevance]),
+      );
+
       const insertions = [];
-      if (resolved.teamIds.length > 0) {
+      if (resolved.teamMatches.length > 0) {
         insertions.push(
           supabase.from('article_teams').insert(
-            resolved.teamIds.map((teamId) => ({
+            resolved.teamMatches.map((m) => ({
               article_id: article.id,
-              team_id: teamId,
+              team_id: m.id,
+              relevance: relByName.get(m.name.toLowerCase().trim().replace(/\s+/g, ' ')) ?? null,
             })),
           ),
         );

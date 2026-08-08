@@ -151,7 +151,7 @@ const MATCH_RANK: Record<string, number> = {
 async function resolveTeams(
   teamNames: string[],
   leagueHint?: string,
-): Promise<{ resolved: { id: string; league: string }[]; unresolved: string[] }> {
+): Promise<{ resolved: { id: string; league: string; name: string }[]; unresolved: string[] }> {
   if (teamNames.length === 0) return { resolved: [], unresolved: [] };
 
   const { data: teams, error } = await supabase
@@ -180,7 +180,7 @@ async function resolveTeams(
   }
 
   // Pass 2: resolve unambiguous matches first to build league context
-  const resolved: { id: string; league: string }[] = [];
+  const resolved: { id: string; league: string; name: string }[] = [];
   const unresolved: string[] = [];
   const resolvedLeagues = new Set<string>();
 
@@ -200,7 +200,7 @@ async function resolveTeams(
     if (candidates.length === 1) {
       const t = candidates[0].team;
       if (!resolved.some((r) => r.id === t.id)) {
-        resolved.push({ id: t.id, league: t.league });
+        resolved.push({ id: t.id, league: t.league, name });
         resolvedLeagues.add(normalize(t.league));
       }
       continue;
@@ -218,7 +218,7 @@ async function resolveTeams(
       // Clear best match (e.g. full name match vs nickname match)
       const t = best[0].team;
       if (!resolved.some((r) => r.id === t.id)) {
-        resolved.push({ id: t.id, league: t.league });
+        resolved.push({ id: t.id, league: t.league, name });
         resolvedLeagues.add(normalize(t.league));
       }
     } else {
@@ -253,7 +253,7 @@ async function resolveTeams(
 
     const winner = scored[0].team;
     if (!resolved.some((r) => r.id === winner.id)) {
-      resolved.push({ id: winner.id, league: winner.league });
+      resolved.push({ id: winner.id, league: winner.league, name });
       resolvedLeagues.add(normalize(winner.league));
     }
   }
@@ -402,6 +402,7 @@ export async function resolveEntities(
 
   return {
     teamIds: teamResult.resolved.map((t) => t.id),
+    teamMatches: teamResult.resolved.map((t) => ({ id: t.id, name: t.name })),
     playerIds: playerResult.resolved,
     leagueIds: allLeagueIds,
     unresolvedTeams: teamResult.unresolved,

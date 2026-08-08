@@ -19,6 +19,9 @@ export interface ResolvedEntities {
   playerIds: string[];
   teamIds: string[];
   leagueIds: string[];
+  // Resolved team id paired with the input name that matched it, so callers can
+  // map a per-team relevance score back to the resolved team.
+  teamMatches: { id: string; name: string }[];
   unresolvedPlayers: string[];
   unresolvedTeams: string[];
   unresolvedLeagues: string[];
