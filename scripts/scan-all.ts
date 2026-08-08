@@ -9,33 +9,62 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!,
 );
 
+// Optional dispatch inputs (set when triggered from the admin UI; empty on cron):
+const SCAN_FEED_ID = process.env.SCAN_FEED_ID?.trim() || null; // scope to one feed
+const SCAN_RUN_ID = process.env.SCAN_RUN_ID?.trim() || null; // update this run row
+
+/** Current status of a scan_runs row — used for cooperative abort. */
+async function runStatus(id: string): Promise<string | null> {
+  const { data } = await supabase.from('scan_runs').select('status').eq('id', id).maybeSingle();
+  return data?.status ?? null;
+}
+
 async function main() {
-  const { data: feeds } = await supabase
-    .from('article_feeds')
-    .select('id, name, feed_type')
-    .eq('is_active', true)
-    .order('name');
+  // Which feeds to scan: one (dispatched) or all active (cron / scan-all).
+  const base = supabase.from('article_feeds').select('id, name, feed_type');
+  const { data: feeds } = SCAN_FEED_ID
+    ? await base.eq('id', SCAN_FEED_ID)
+    : await base.eq('is_active', true).order('name');
 
   if (!feeds || feeds.length === 0) {
-    console.log('No active feeds found');
+    console.log('No feeds to scan');
     return;
   }
 
-  // Record the run in scan_runs (feed_id null = a full "scan all") so the admin
-  // "Last scan" panel reflects cron/manual runs — this script is what actually
-  // scans reliably (the Vercel route's background scan gets killed).
-  const { data: scanRun } = await supabase
-    .from('scan_runs')
-    .insert({ feed_id: null, status: 'running' })
-    .select('id')
-    .single();
+  // Use the run row the dispatcher pre-created, or create one (cron path).
+  // feed_id null = a full "scan all".
+  let scanRunId = SCAN_RUN_ID;
+  if (scanRunId) {
+    // If it was aborted while still queued, don't start at all.
+    const st = await runStatus(scanRunId);
+    if (st === 'aborting' || st === 'aborted') {
+      await supabase
+        .from('scan_runs')
+        .update({ status: 'aborted', completed_at: new Date().toISOString() })
+        .eq('id', scanRunId);
+      console.log('Aborted before start.');
+      return;
+    }
+    await supabase
+      .from('scan_runs')
+      .update({ status: 'running', started_at: new Date().toISOString() })
+      .eq('id', scanRunId);
+  } else {
+    const { data: created } = await supabase
+      .from('scan_runs')
+      .insert({ feed_id: SCAN_FEED_ID, status: 'running' })
+      .select('id')
+      .single();
+    scanRunId = created?.id ?? null;
+  }
 
-  console.log(`Scanning ${feeds.length} active feeds...\n`);
+  console.log(`Scanning ${feeds.length} feed(s)${SCAN_FEED_ID ? ' (single)' : ''}...\n`);
   const runStart = Date.now();
   let totalSaved = 0;
   let totalSkipped = 0;
   let totalFound = 0;
   let feedsScanned = 0;
+  let aborted = false;
   const errors: string[] = [];
 
   try {
@@ -43,6 +72,13 @@ async function main() {
       if (feed.feed_type === 'podcast') {
         console.log(`  SKIP ${feed.name} (podcast)`);
         continue;
+      }
+
+      // Cooperative abort: stop cleanly if the run was flagged.
+      if (scanRunId && (await runStatus(scanRunId)) === 'aborting') {
+        aborted = true;
+        console.log('  ABORT requested — stopping.');
+        break;
       }
 
       feedsScanned += 1;
@@ -63,11 +99,11 @@ async function main() {
       }
     }
 
-    if (scanRun) {
+    if (scanRunId) {
       await supabase
         .from('scan_runs')
         .update({
-          status: 'completed',
+          status: aborted ? 'aborted' : 'completed',
           completed_at: new Date().toISOString(),
           duration_ms: Date.now() - runStart,
           feeds_scanned: feedsScanned,
@@ -77,10 +113,10 @@ async function main() {
           error_count: errors.length,
           error_message: errors.length ? errors.join('; ') : null,
         })
-        .eq('id', scanRun.id);
+        .eq('id', scanRunId);
     }
   } catch (err) {
-    if (scanRun) {
+    if (scanRunId) {
       await supabase
         .from('scan_runs')
         .update({
@@ -94,13 +130,13 @@ async function main() {
           error_count: errors.length,
           error_message: err instanceof Error ? err.message : String(err),
         })
-        .eq('id', scanRun.id);
+        .eq('id', scanRunId);
     }
     throw err;
   }
 
   console.log(
-    `\nDone. Feeds: ${feedsScanned} | Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped} | Errors: ${errors.length}`,
+    `\nDone${aborted ? ' (ABORTED)' : ''}. Feeds: ${feedsScanned} | Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped} | Errors: ${errors.length}`,
   );
 }
 

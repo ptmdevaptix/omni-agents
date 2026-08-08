@@ -4,8 +4,17 @@ on:
   schedule:
     # Every 4 hours, on the hour (UTC). GitHub cron is best-effort and may lag.
     - cron: '0 */4 * * *'
-  # Allow running it by hand from the Actions tab.
+  # Allow running it by hand from the Actions tab or via the admin UI (dispatch).
   workflow_dispatch:
+    inputs:
+      feed_id:
+        description: 'Scan only this feed id (blank = all active feeds)'
+        required: false
+        default: ''
+      scan_run_id:
+        description: 'Existing scan_runs row id to update (blank = create a new one)'
+        required: false
+        default: ''
 
 # Never let two scans overlap; a new run waits rather than racing the DB.
 concurrency:
@@ -32,3 +41,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          # Empty on cron runs; set when dispatched from the admin UI.
+          SCAN_FEED_ID: ${{ github.event.inputs.feed_id }}
+          SCAN_RUN_ID: ${{ github.event.inputs.scan_run_id }}
