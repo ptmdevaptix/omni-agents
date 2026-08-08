@@ -16,7 +16,8 @@
     "seed:x-accounts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-x-accounts.ts",
     "gen:nhl-preview": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/generate-nhl-preview.ts",
     "gen:nhl-openers": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/generate-nhl-openers.ts",
-    "seed:prompts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-content-prompts.ts"
+    "seed:prompts": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/seed-content-prompts.ts",
+    "backfill:team-relevance": "tsx --tsconfig tsconfig.json --import ./scripts/env.ts scripts/backfill-team-relevance.ts"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.36",
