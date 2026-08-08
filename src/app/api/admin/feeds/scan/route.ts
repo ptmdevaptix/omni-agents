@@ -37,10 +37,18 @@ export async function POST(request: NextRequest) {
 
   // ---- Abort the active scan ----
   if (body.action === 'abort') {
+    // A running scan aborts cooperatively (scan-all checks the flag between
+    // feeds). A queued scan hasn't started on the runner yet, so finalize it
+    // directly (and cancel the dispatched GH run below).
+    const now = new Date().toISOString();
+    await supabase
+      .from('scan_runs')
+      .update({ status: 'aborted', completed_at: now })
+      .eq('status', 'queued');
     const { data: flagged } = await supabase
       .from('scan_runs')
       .update({ status: 'aborting' })
-      .in('status', ['queued', 'running'])
+      .eq('status', 'running')
       .select('id');
 
     // Best-effort: cancel the in-progress GitHub run(s) too, so a hung scan dies.
