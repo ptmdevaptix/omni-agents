@@ -43,11 +43,30 @@ function decodeHtmlEntities(str: string): string {
     );
 }
 
+// rss-parser's default request advertises a "rss-parser" agent, which some
+// sites' WAFs (e.g. ESPN) block from datacenter / CI IPs, returning a non-XML
+// page → "Unable to parse XML". Use a modest "compatible" UA (same as the NHL
+// client): a FULL browser UA is worse — ESPN answers those with a 202 + empty
+// body (its bot challenge for fake browsers), which also fails to parse.
+const FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; OmniAgents/1.0; +https://github.com)',
+  Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+};
+
 /**
  * Fetch and parse an RSS/Atom feed, returning normalized items.
  */
 export async function fetchFeed(feedUrl: string): Promise<FeedItem[]> {
-  const feed = await parser.parseURL(feedUrl);
+  const res = await fetch(feedUrl, {
+    headers: FETCH_HEADERS,
+    redirect: 'follow',
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const xml = await res.text();
+  const feed = await parser.parseString(xml);
 
   return (feed.items ?? []).map((item) => ({
     title: decodeHtmlEntities(item.title ?? ''),
