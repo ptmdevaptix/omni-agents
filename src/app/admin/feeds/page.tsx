@@ -93,12 +93,20 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
+const ACTIVE_STATUSES = ['queued', 'running', 'aborting'];
+
 function ScanStatusBadge({ status }: { status: string }) {
   switch (status) {
+    case 'queued':
+      return <Badge className="bg-amber-500 text-white animate-pulse">Queued</Badge>;
     case 'running':
       return <Badge className="bg-blue-600 text-white animate-pulse">Running</Badge>;
+    case 'aborting':
+      return <Badge className="bg-orange-600 text-white animate-pulse">Aborting</Badge>;
     case 'completed':
       return <Badge className="bg-green-600 text-white">Completed</Badge>;
+    case 'aborted':
+      return <Badge className="bg-zinc-500 text-white">Aborted</Badge>;
     case 'failed':
       return <Badge className="bg-red-600 text-white">Failed</Badge>;
     default:
@@ -534,9 +542,7 @@ export default function AdminFeedsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState<string | null>(null); // feedId or 'all'
   const [showHistory, setShowHistory] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Slide-over edit panel (same pattern as the content/research admin pages).
   const [editing, setEditing] = useState<Feed | null>(null);
@@ -578,44 +584,49 @@ export default function AdminFeedsPage() {
     fetchData();
   }, [fetchData]);
 
-  // Poll for scan updates while a scan is running
+  // A scan is "active" (queued/running/aborting) regardless of who started it —
+  // the UI reflects the DB state, not just this tab's action.
+  const activeRun = scanRuns.find((r) => ACTIVE_STATUSES.includes(r.status));
+  const hasActiveScan = !!activeRun;
+
+  const refreshScans = useCallback(async () => {
+    const res = await fetch('/api/admin/feeds/scan');
+    const data = await res.json();
+    setScanRuns(data.scanRuns ?? []);
+    return (data.scanRuns ?? []) as ScanRun[];
+  }, []);
+
+  // Poll while a scan is active; refresh feed data once it finishes.
   useEffect(() => {
-    if (scanning) {
-      pollRef.current = setInterval(async () => {
-        const res = await fetch('/api/admin/feeds/scan');
-        const data = await res.json();
-        setScanRuns(data.scanRuns ?? []);
-
-        // Check if the running scan completed
-        const hasRunning = (data.scanRuns ?? []).some(
-          (r: ScanRun) => r.status === 'running',
-        );
-        if (!hasRunning) {
-          setScanning(null);
-          fetchData(); // refresh article counts
-        }
-      }, 5000);
-
-      return () => {
-        if (pollRef.current) clearInterval(pollRef.current);
-      };
-    }
-  }, [scanning, fetchData]);
+    if (!hasActiveScan) return;
+    const iv = setInterval(async () => {
+      const runs = await refreshScans();
+      if (!runs.some((r) => ACTIVE_STATUSES.includes(r.status))) fetchData();
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [hasActiveScan, refreshScans, fetchData]);
 
   async function startScan(feedId?: string) {
-    const key = feedId || 'all';
-    setScanning(key);
-
-    await fetch('/api/admin/feeds/scan', {
+    const res = await fetch('/api/admin/feeds/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ feedId: feedId || null }),
     });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert(d.error || 'Failed to start scan');
+    }
+    await refreshScans();
+  }
 
-    // Immediately fetch scan runs to show the new running entry
-    const res = await fetch('/api/admin/feeds/scan');
-    const data = await res.json();
-    setScanRuns(data.scanRuns ?? []);
+  async function abortScan() {
+    if (!window.confirm('Abort the current scan? It will stop at the next feed boundary.')) return;
+    await fetch('/api/admin/feeds/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'abort' }),
+    });
+    await refreshScans();
   }
 
   async function toggleActive(feed: Feed) {
@@ -629,13 +640,12 @@ export default function AdminFeedsPage() {
 
   function getLastScanForFeed(feedId: string): ScanRun | undefined {
     return scanRuns.find(
-      (r) => r.feed_id === feedId && r.status !== 'running',
+      (r) => r.feed_id === feedId && !ACTIVE_STATUSES.includes(r.status),
     );
   }
 
   const activeCount = feeds.filter((f) => f.is_active).length;
   const latestScan = scanRuns[0];
-  const hasRunningScan = scanRuns.some((r) => r.status === 'running');
   const feedNameById = new Map(feeds.map((f) => [f.id, f.name]));
 
   return (
@@ -659,12 +669,17 @@ export default function AdminFeedsPage() {
         <div className="flex items-center gap-2">
           {!loading && (
             <>
+              {hasActiveScan && (
+                <Button variant="destructive" onClick={abortScan}>
+                  {activeRun?.status === 'aborting' ? 'Aborting…' : 'Abort scan'}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => startScan()}
-                disabled={hasRunningScan}
+                disabled={hasActiveScan}
               >
-                {hasRunningScan ? 'Scanning...' : 'Scan All Feeds'}
+                {hasActiveScan ? 'Scanning…' : 'Scan All Feeds'}
               </Button>
               <AddFeedDialog
                 sources={sources}
@@ -818,8 +833,9 @@ export default function AdminFeedsPage() {
                     : feed.team;
                   const lastScan = getLastScanForFeed(feed.id);
                   const isFeedScanning =
-                    scanning === feed.id ||
-                    (scanning === 'all' && feed.is_active);
+                    hasActiveScan &&
+                    (activeRun?.feed_id === feed.id ||
+                      (activeRun?.feed_id == null && feed.is_active));
                   const isOpen = panelOpen && editing?.id === feed.id;
 
                   return (
@@ -897,12 +913,12 @@ export default function AdminFeedsPage() {
                           size="sm"
                           onClick={() => startScan(feed.id)}
                           disabled={
-                            hasRunningScan ||
+                            hasActiveScan ||
                             !feed.is_active ||
                             feed.feed_type === 'podcast'
                           }
                         >
-                          {isFeedScanning ? 'Scanning...' : 'Scan'}
+                          {isFeedScanning ? 'Scanning…' : 'Scan'}
                         </Button>
                       </TableCell>
                     </TableRow>
