@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { XIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AppNav } from '@/components/app-nav';
+import { SlideOver } from '@/components/ui/slide-over';
 
 function teamDisplayName(placeName: string, nickname: string): string {
   if (placeName.toLowerCase().includes(nickname.toLowerCase())) {
@@ -351,6 +354,177 @@ function AddFeedDialog({
   );
 }
 
+function EditFeedPanel({
+  feed,
+  sources,
+  leagues,
+  teams,
+  onClose,
+  onChanged,
+  onDirtyChange,
+}: {
+  feed: Feed;
+  sources: Source[];
+  leagues: League[];
+  teams: Team[];
+  onClose: () => void;
+  onChanged: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const src = Array.isArray(feed.source) ? (feed.source as unknown as Source[])[0] : feed.source;
+  const lg = Array.isArray(feed.league) ? (feed.league as unknown as League[])[0] : feed.league;
+  const tm = Array.isArray(feed.team) ? (feed.team as unknown as Team[])[0] : feed.team;
+  const seedSource = src ? String(src.id) : '';
+  const seedLeague = lg ? String(lg.id) : '';
+  const seedTeam = tm ? String(tm.id) : '';
+
+  const [name, setName] = useState(feed.name);
+  const [url, setUrl] = useState(feed.url);
+  const [sourceId, setSourceId] = useState(seedSource);
+  const [feedType, setFeedType] = useState(feed.feed_type);
+  const [leagueId, setLeagueId] = useState(seedLeague);
+  const [teamId, setTeamId] = useState(seedTeam);
+  const [isActive, setIsActive] = useState(feed.is_active);
+  const [fetchInterval, setFetchInterval] = useState(String(feed.fetch_interval_minutes));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const dirty =
+    name !== feed.name ||
+    url !== feed.url ||
+    sourceId !== seedSource ||
+    feedType !== feed.feed_type ||
+    leagueId !== seedLeague ||
+    teamId !== seedTeam ||
+    isActive !== feed.is_active ||
+    fetchInterval !== String(feed.fetch_interval_minutes);
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    const res = await fetch('/api/admin/feeds', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: feed.id,
+        name,
+        url,
+        sourceId: sourceId ? Number(sourceId) : undefined,
+        feedType,
+        leagueId: leagueId || null,
+        teamId: teamId || null,
+        isActive,
+        fetchIntervalMinutes: Number(fetchInterval) || 60,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      onChanged();
+      onClose();
+    } else {
+      const d = await res.json();
+      setError(d.error || 'Failed to save');
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-start gap-2 border-b p-4">
+        <div className="min-w-0 flex-1">
+          <div className="font-heading text-base font-medium">Edit feed</div>
+          <div className="truncate text-xs text-muted-foreground">{feed.name}</div>
+        </div>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+          <XIcon />
+        </Button>
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="space-y-1">
+          <Label className="text-xs">Name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Feed URL</Label>
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Source</Label>
+          <Select value={sourceId} onValueChange={(v) => setSourceId(v ?? '')}>
+            <SelectTrigger><SelectValue placeholder="Select source" /></SelectTrigger>
+            <SelectContent>
+              {sources.map((s) => (
+                <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Feed Type</Label>
+          <Select value={feedType} onValueChange={(v) => setFeedType(v ?? 'rss')}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="rss">RSS</SelectItem>
+              <SelectItem value="atom">Atom</SelectItem>
+              <SelectItem value="podcast">Podcast</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">League (optional)</Label>
+          <Select value={leagueId || 'none'} onValueChange={(v) => setLeagueId(v === 'none' ? '' : v ?? '')}>
+            <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {leagues.map((l) => (
+                <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Team (optional)</Label>
+          <Select value={teamId || 'none'} onValueChange={(v) => setTeamId(v === 'none' ? '' : v ?? '')}>
+            <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {teams.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {teamDisplayName(t.place_name, t.nickname)} ({t.league})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Active</Label>
+          <Switch checked={isActive} onCheckedChange={setIsActive} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Fetch interval (minutes)</Label>
+          <Input type="number" value={fetchInterval} onChange={(e) => setFetchInterval(e.target.value)} />
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </div>
+
+      <div className="flex items-center gap-2 border-t bg-muted/50 p-4">
+        {dirty && <span className="text-xs text-amber-600">unsaved edits</span>}
+        <div className="ml-auto flex gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !dirty || !name || !url}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminFeedsPage() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -360,6 +534,27 @@ export default function AdminFeedsPage() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState<string | null>(null); // feedId or 'all'
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Slide-over edit panel (same pattern as the content/research admin pages).
+  const [editing, setEditing] = useState<Feed | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const reportDirty = useCallback((d: boolean) => { dirtyRef.current = d; }, []);
+  function openPanel(feed: Feed) {
+    if (panelOpen && editing && feed.id !== editing.id && dirtyRef.current) {
+      if (!window.confirm('You have unsaved edits. Discard them and open this feed?')) return;
+    }
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    dirtyRef.current = false;
+    setEditing(feed);
+    setPanelOpen(true);
+  }
+  function closePanel() {
+    setPanelOpen(false);
+    dirtyRef.current = false;
+    closeTimer.current = setTimeout(() => setEditing(null), 220);
+  }
 
   const fetchData = useCallback(async () => {
     const [feedsRes, scansRes] = await Promise.all([
@@ -442,6 +637,12 @@ export default function AdminFeedsPage() {
   return (
     <div className="flex flex-1 flex-col">
       <AppNav />
+      <div
+        className={cn(
+          'flex flex-1 flex-col transition-[padding] duration-200',
+          panelOpen && 'lg:pr-[37rem]',
+        )}
+      >
       <div className="px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Manage Feeds</h1>
@@ -546,17 +747,27 @@ export default function AdminFeedsPage() {
                   const isFeedScanning =
                     scanning === feed.id ||
                     (scanning === 'all' && feed.is_active);
+                  const isOpen = panelOpen && editing?.id === feed.id;
 
                   return (
                     <TableRow
                       key={feed.id}
-                      className={feed.is_active ? '' : 'opacity-50'}
+                      onClick={() => openPanel(feed)}
+                      aria-selected={isOpen}
+                      className={cn(
+                        'cursor-pointer hover:bg-muted',
+                        !feed.is_active && !isOpen && 'opacity-50',
+                        isOpen && 'bg-accent hover:bg-accent',
+                      )}
                     >
-                      <TableCell>
-                        <Switch
-                          checked={feed.is_active}
-                          onCheckedChange={() => toggleActive(feed)}
-                        />
+                      <TableCell className="relative">
+                        {isOpen && <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />}
+                        <span className="inline-flex" onClick={(e) => e.stopPropagation()}>
+                          <Switch
+                            checked={feed.is_active}
+                            onCheckedChange={() => toggleActive(feed)}
+                          />
+                        </span>
                       </TableCell>
                       <TableCell className="font-medium">{feed.name}</TableCell>
                       <TableCell>{source?.name ?? '—'}</TableCell>
@@ -607,7 +818,7 @@ export default function AdminFeedsPage() {
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -629,6 +840,23 @@ export default function AdminFeedsPage() {
           </CardContent>
         </Card>
       </div>
+      </div>
+
+      {/* Slide-over edit panel — docks on the right and splits the view. */}
+      <SlideOver open={panelOpen}>
+        {editing && (
+          <EditFeedPanel
+            key={editing.id}
+            feed={editing}
+            sources={sources}
+            leagues={leagues}
+            teams={teams}
+            onClose={closePanel}
+            onChanged={fetchData}
+            onDirtyChange={reportDirty}
+          />
+        )}
+      </SlideOver>
     </div>
   );
 }
