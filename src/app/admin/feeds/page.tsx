@@ -543,6 +543,7 @@ export default function AdminFeedsPage() {
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [errorDetail, setErrorDetail] = useState<ScanRun | null>(null);
 
   // Slide-over edit panel (same pattern as the content/research admin pages).
   const [editing, setEditing] = useState<Feed | null>(null);
@@ -773,13 +774,19 @@ export default function AdminFeedsPage() {
                         <TableCell className="text-right text-sm">{r.articles_found}</TableCell>
                         <TableCell className="text-right text-sm">{r.articles_saved}</TableCell>
                         <TableCell className="text-right text-sm">{r.articles_skipped}</TableCell>
-                        <TableCell
-                          className={cn(
-                            'text-right text-sm',
-                            (r.error_count ?? 0) > 0 && 'text-destructive',
+                        <TableCell className="text-right text-sm">
+                          {(r.error_count ?? 0) > 0 || r.error_message ? (
+                            <button
+                              type="button"
+                              className="text-destructive underline underline-offset-2 hover:opacity-80"
+                              onClick={() => setErrorDetail(r)}
+                              title="Show errors"
+                            >
+                              {r.error_count ?? '≥1'}
+                            </button>
+                          ) : (
+                            0
                           )}
-                        >
-                          {r.error_count ?? (r.error_message ? '≥1' : 0)}
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
                           {r.duration_ms != null ? formatDuration(r.duration_ms) : '—'}
@@ -930,6 +937,30 @@ export default function AdminFeedsPage() {
         </Card>
       </div>
       </div>
+
+      {/* Scan errors detail */}
+      <Dialog open={!!errorDetail} onOpenChange={(o) => !o && setErrorDetail(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Scan errors{errorDetail?.error_count != null ? ` (${errorDetail.error_count})` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-2 overflow-y-auto">
+            {(errorDetail?.error_message ?? '')
+              .split('; ')
+              .filter(Boolean)
+              .map((line, i) => (
+                <div key={i} className="rounded-md border bg-muted/40 p-2 text-sm">
+                  {line}
+                </div>
+              ))}
+            {!errorDetail?.error_message && (
+              <p className="text-sm text-muted-foreground">No error detail recorded.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Slide-over edit panel — docks on the right and splits the view. */}
       <SlideOver open={panelOpen}>
