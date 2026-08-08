@@ -79,9 +79,11 @@ interface ScanRun {
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
+  feeds_scanned: number | null;
   articles_found: number;
   articles_saved: number;
   articles_skipped: number;
+  error_count: number | null;
   error_message: string | null;
 }
 
@@ -533,6 +535,7 @@ export default function AdminFeedsPage() {
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState<string | null>(null); // feedId or 'all'
+  const [showHistory, setShowHistory] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Slide-over edit panel (same pattern as the content/research admin pages).
@@ -633,6 +636,7 @@ export default function AdminFeedsPage() {
   const activeCount = feeds.filter((f) => f.is_active).length;
   const latestScan = scanRuns[0];
   const hasRunningScan = scanRuns.some((r) => r.status === 'running');
+  const feedNameById = new Map(feeds.map((f) => [f.id, f.name]));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -712,6 +716,75 @@ export default function AdminFeedsPage() {
           </Card>
         </div>
       )}
+
+      {/* Scan history */}
+      <div className="px-6 pb-4">
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          className="text-sm text-muted-foreground underline hover:text-foreground"
+        >
+          {showHistory ? 'Hide scan history' : `Scan history (${scanRuns.length})`}
+        </button>
+        {showHistory && (
+          <Card className="mt-2">
+            <CardContent className="p-0">
+              <div className="max-h-[40vh] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Scope</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Feeds</TableHead>
+                      <TableHead className="text-right">Found</TableHead>
+                      <TableHead className="text-right">Saved</TableHead>
+                      <TableHead className="text-right">Skipped</TableHead>
+                      <TableHead className="text-right">Errors</TableHead>
+                      <TableHead className="text-right">Duration</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {scanRuns.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {new Date(r.started_at).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {r.feed_id ? feedNameById.get(r.feed_id) ?? 'feed' : 'All feeds'}
+                        </TableCell>
+                        <TableCell><ScanStatusBadge status={r.status} /></TableCell>
+                        <TableCell className="text-right text-sm">{r.feeds_scanned ?? '—'}</TableCell>
+                        <TableCell className="text-right text-sm">{r.articles_found}</TableCell>
+                        <TableCell className="text-right text-sm">{r.articles_saved}</TableCell>
+                        <TableCell className="text-right text-sm">{r.articles_skipped}</TableCell>
+                        <TableCell
+                          className={cn(
+                            'text-right text-sm',
+                            (r.error_count ?? 0) > 0 && 'text-destructive',
+                          )}
+                        >
+                          {r.error_count ?? (r.error_message ? '≥1' : 0)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground">
+                          {r.duration_ms != null ? formatDuration(r.duration_ms) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {scanRuns.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
+                          No scans recorded yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <Separator />
 

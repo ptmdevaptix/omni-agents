@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
     let totalFound = 0;
     let totalSaved = 0;
     let totalSkipped = 0;
+    let errorCount = 0;
     let errorMessage: string | undefined;
 
     try {
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
         totalSaved += result.articlesSaved;
         totalSkipped += result.articlesSkipped;
         if (result.error) {
+          errorCount += 1;
           errorMessage = errorMessage
             ? `${errorMessage}; ${result.error}`
             : result.error;
@@ -61,12 +63,14 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('scan_runs')
         .update({
-          status: errorMessage ? 'completed' : 'completed',
+          status: 'completed',
           completed_at: new Date().toISOString(),
           duration_ms: Date.now() - startTime,
+          feeds_scanned: feedIds.length,
           articles_found: totalFound,
           articles_saved: totalSaved,
           articles_skipped: totalSkipped,
+          error_count: errorCount,
           error_message: errorMessage ?? null,
         })
         .eq('id', scanRun.id);
@@ -77,9 +81,11 @@ export async function POST(request: NextRequest) {
           status: 'failed',
           completed_at: new Date().toISOString(),
           duration_ms: Date.now() - startTime,
+          feeds_scanned: feedIds.length,
           articles_found: totalFound,
           articles_saved: totalSaved,
           articles_skipped: totalSkipped,
+          error_count: errorCount,
           error_message:
             err instanceof Error ? err.message : 'Unknown error',
         })
