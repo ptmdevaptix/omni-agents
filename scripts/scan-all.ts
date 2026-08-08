@@ -35,6 +35,7 @@ async function main() {
   let totalSaved = 0;
   let totalSkipped = 0;
   let totalFound = 0;
+  let feedsScanned = 0;
   const errors: string[] = [];
 
   try {
@@ -44,6 +45,7 @@ async function main() {
         continue;
       }
 
+      feedsScanned += 1;
       process.stdout.write(`  ${feed.name}...`);
       const start = Date.now();
       const result = await scanFeed(feed.id);
@@ -68,9 +70,11 @@ async function main() {
           status: 'completed',
           completed_at: new Date().toISOString(),
           duration_ms: Date.now() - runStart,
+          feeds_scanned: feedsScanned,
           articles_found: totalFound,
           articles_saved: totalSaved,
           articles_skipped: totalSkipped,
+          error_count: errors.length,
           error_message: errors.length ? errors.join('; ') : null,
         })
         .eq('id', scanRun.id);
@@ -83,9 +87,11 @@ async function main() {
           status: 'failed',
           completed_at: new Date().toISOString(),
           duration_ms: Date.now() - runStart,
+          feeds_scanned: feedsScanned,
           articles_found: totalFound,
           articles_saved: totalSaved,
           articles_skipped: totalSkipped,
+          error_count: errors.length,
           error_message: err instanceof Error ? err.message : String(err),
         })
         .eq('id', scanRun.id);
@@ -93,7 +99,9 @@ async function main() {
     throw err;
   }
 
-  console.log(`\nDone. Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped}`);
+  console.log(
+    `\nDone. Feeds: ${feedsScanned} | Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped} | Errors: ${errors.length}`,
+  );
 }
 
 main()
