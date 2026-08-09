@@ -130,29 +130,43 @@ const playerName = (p: { firstName?: { default: string }; lastName?: { default: 
   [p.firstName?.default, p.lastName?.default].filter(Boolean).join(' ');
 
 // Major individual NHL trophies (offseason awards) worth calling out in a
-// preview. The landing's `awards` field also lists lesser honors, so filter.
+// preview. Team/coach/GM awards and lesser honors are filtered out.
 const MAJOR_TROPHIES = /Hart|Art Ross|Richard|Vezina|Norris|Calder|Conn Smythe|Selke|Ted Lindsay|Lady Byng|Masterton/i;
 
-/** Major trophies a player won in `lastSeason` (from their landing's awards). */
-async function playerAwardsLastSeason(
-  playerId: number,
-  lastSeason: string,
-): Promise<{ name: string; trophies: string[] }> {
+export interface PlayerAward {
+  name: string;
+  trophy: string;
+  won: boolean; // WINNER vs a finalist (RUNNER_UP / FINALIST)
+}
+
+/**
+ * All major individual awards (winners AND finalists) for `lastSeason`, keyed by
+ * playerId. One fetch from the NHL records API covers the whole league, so we
+ * catch every award involvement regardless of a player's scoring rank.
+ */
+async function seasonAwardsByPlayer(lastSeason: string): Promise<Map<number, PlayerAward[]>> {
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; OmniAgents/1.0; +https://github.com)' };
+  const map = new Map<number, PlayerAward[]>();
   try {
-    const l = await nhlGet<{
-      firstName?: { default: string };
-      lastName?: { default: string };
-      awards?: { trophy?: { default?: string }; seasons?: { seasonId?: number }[] }[];
-    }>(`/v1/player/${playerId}/landing`);
-    const yr = Number(lastSeason);
-    const trophies = (l.awards ?? [])
-      .filter((a) => (a.seasons ?? []).some((s) => s.seasonId === yr))
-      .map((a) => a.trophy?.default ?? '')
-      .filter((t) => t && MAJOR_TROPHIES.test(t));
-    return { name: playerName(l), trophies };
+    const [details, trophies] = await Promise.all([
+      fetch(`https://records.nhl.com/site/api/award-details?cayenneExp=seasonId=${lastSeason}`, { headers })
+        .then((r) => r.json()) as Promise<{ data?: { playerId: number | null; trophyId: number; fullName: string; status: string }[] }>,
+      fetch('https://records.nhl.com/site/api/trophy', { headers })
+        .then((r) => r.json()) as Promise<{ data?: { id: number; name: string }[] }>,
+    ]);
+    const trophyName = new Map((trophies.data ?? []).map((t) => [t.id, t.name]));
+    for (const d of details.data ?? []) {
+      if (d.playerId == null) continue;
+      const trophy = trophyName.get(d.trophyId) ?? '';
+      if (!trophy || !MAJOR_TROPHIES.test(trophy)) continue;
+      const arr = map.get(d.playerId) ?? [];
+      arr.push({ name: d.fullName, trophy, won: d.status === 'WINNER' });
+      map.set(d.playerId, arr);
+    }
   } catch {
-    return { name: '', trophies: [] };
+    // records API unavailable → no awards fact (never blocks generation)
   }
+  return map;
 }
 
 interface RosterPlayer { id: number }
@@ -335,7 +349,11 @@ export interface TeamContext {
 }
 
 /** Returning leaders + offseason additions (enriched) + notable departures. */
-async function teamContext(abbr: string, lastSeason: string): Promise<TeamContext> {
+async function teamContext(
+  abbr: string,
+  lastSeason: string,
+  awardMap: Map<number, PlayerAward[]>,
+): Promise<TeamContext> {
   let stats: { skaters?: SkaterStat[]; goalies?: GoalieStat[] } | null = null;
   let roster: RosterPlayer[] = [];
   try {
@@ -400,24 +418,24 @@ async function teamContext(abbr: string, lastSeason: string): Promise<TeamContex
       : `Last season's most-used goaltender, ${playerName(topG)}, is gone, leaving the starting job unsettled.`;
   }
 
-  // Major individual awards won last season by returning players (offseason
-  // storylines). Check the top scorers + returning starter — that covers most
-  // major trophies (Hart/Art Ross/Richard/Norris tend to be top scorers, Vezina
-  // is the goalie). The model has no award data otherwise, so we supply it.
-  const awardIds = [
-    ...(stats?.skaters ?? [])
-      .filter((s) => onRoster(s.playerId))
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 6)
-      .map((s) => s.playerId),
-    ...(topG && topGReturns ? [topG.playerId] : []),
-  ];
-  const awardResults = await Promise.all(
-    awardIds.map((id) => playerAwardsLastSeason(id, lastSeason)),
-  );
-  const awards = awardResults
-    .filter((r) => r.trophies.length > 0)
-    .map((r) => `${r.name} (${r.trophies.join(', ')})`)
+  // Major awards (winners AND finalists) among players on the current roster —
+  // offseason storylines the model otherwise has no data for.
+  const awardsByPlayer = new Map<number, { name: string; won: string[]; finalist: string[] }>();
+  for (const [pid, entries] of awardMap) {
+    if (haveRoster && !rosterIds.has(pid)) continue;
+    for (const e of entries) {
+      const rec = awardsByPlayer.get(pid) ?? { name: e.name, won: [], finalist: [] };
+      (e.won ? rec.won : rec.finalist).push(e.trophy);
+      awardsByPlayer.set(pid, rec);
+    }
+  }
+  const awards = [...awardsByPlayer.values()]
+    .map((r) => {
+      const parts: string[] = [];
+      if (r.won.length) parts.push(`won the ${r.won.join(' and ')}`);
+      if (r.finalist.length) parts.push(`was a finalist for the ${r.finalist.join(' and ')}`);
+      return `${r.name} ${parts.join(' and ')}`;
+    })
     .join('; ');
 
   // Notable skater departures (goalies are covered by the goaltending line).
@@ -488,12 +506,14 @@ export async function buildOpenerContext(
   const homeAbbr = opener.homeTeam.abbrev;
   const awayAbbr = opener.awayTeam.abbrev;
   const draftYear = upcomingSeason.slice(0, 4); // 2026-27 season ⇒ 2026 draft
+  // League-wide award winners + finalists for last season (one fetch, shared).
+  const awardMap = await seasonAwardsByPlayer(lastSeason);
   const [teamLast, oppLast, oppUpcoming, homeTeamCtx, awayTeamCtx, draftPicks, homeCap, awayCap] = await Promise.all([
     seasonSchedule(teamAbbr, lastSeason),
     seasonSchedule(oppAbbr, lastSeason),
     seasonSchedule(oppAbbr, upcomingSeason),
-    teamContext(homeAbbr, lastSeason),
-    teamContext(awayAbbr, lastSeason),
+    teamContext(homeAbbr, lastSeason, awardMap),
+    teamContext(awayAbbr, lastSeason, awardMap),
     topDraftPicks(draftYear, new Set([homeAbbr, awayAbbr])),
     capspaceSigned(homeAbbr),
     capspaceSigned(awayAbbr),
@@ -609,8 +629,8 @@ export async function generateOpenerPreview(ctx: OpenerContext): Promise<Generat
     ctx.awayKeyPlayers ? `${ctx.away.name} key returning players (last season's stats): ${ctx.awayKeyPlayers}.` : '',
     ctx.homeGoaltending ? `${ctx.home.name} goaltending: ${ctx.homeGoaltending}` : '',
     ctx.awayGoaltending ? `${ctx.away.name} goaltending: ${ctx.awayGoaltending}` : '',
-    ctx.homeAwards ? `${ctx.home.name} players who won a major NHL award last season: ${ctx.homeAwards}.` : '',
-    ctx.awayAwards ? `${ctx.away.name} players who won a major NHL award last season: ${ctx.awayAwards}.` : '',
+    ctx.homeAwards ? `${ctx.home.name} major NHL award winners/finalists last season: ${ctx.homeAwards}.` : '',
+    ctx.awayAwards ? `${ctx.away.name} major NHL award winners/finalists last season: ${ctx.awayAwards}.` : '',
     ctx.homeAdditions ? `${ctx.home.name} offseason additions: ${ctx.homeAdditions}.` : '',
     ctx.awayAdditions ? `${ctx.away.name} offseason additions: ${ctx.awayAdditions}.` : '',
     ctx.homeDepartures ? `${ctx.home.name} notable departures: ${ctx.homeDepartures}.` : '',
