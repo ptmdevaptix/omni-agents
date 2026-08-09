@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,22 @@ export function AppNav() {
   return (
     <nav className="border-b px-6 py-3 flex items-center justify-between">
       <div className="flex items-center gap-6">
-        <span className="font-semibold text-sm">Omni Agents</span>
+        <Link href="/articles" className="flex items-center gap-2">
+          <Image
+            src="/omni-logo.png"
+            alt="Omni Hockey"
+            width={28}
+            height={28}
+            className="h-7 w-7 object-contain"
+            priority
+          />
+          <span className="text-lg font-semibold tracking-tight text-white whitespace-nowrap">
+            Omni Hockey
+          </span>
+          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Admin
+          </span>
+        </Link>
         <div className="flex items-center gap-1">
           {links.map((link) => (
             <Link
