@@ -55,6 +55,32 @@ function nameVariants(name: string): string[] {
     }
   }
 
+  // Third pass: French club names. The QMJHL's own sites write "Remparts de
+  // Québec" and "L'Océanic de Rimouski" where the teams table has "Québec
+  // Remparts" and "Rimouski Océanic", so nickname-place order and the leading
+  // article both have to fold away. Accents and the œ ligature are folded too —
+  // Sherbrooke's nickname is spelled "Phœnix" here and "Phoenix" nearly
+  // everywhere else.
+  for (const v of [...variants]) {
+    const noArticle = v.replace(/^(?:les |le |la |l')\s*/, '');
+    variants.add(noArticle);
+
+    const swapped = noArticle.replace(
+      /^(.+?)\s+(?:de la|des|du|de|d')\s*(.+)$/,
+      (_, nick: string, place: string) => `${place} ${nick}`,
+    );
+    variants.add(swapped);
+  }
+
+  for (const v of [...variants]) {
+    const folded = v
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/œ/g, 'oe')
+      .replace(/æ/g, 'ae');
+    if (folded !== v) variants.add(folded);
+  }
+
   return [...variants];
 }
 

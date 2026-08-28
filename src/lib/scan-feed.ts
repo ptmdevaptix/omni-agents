@@ -79,17 +79,31 @@ const articleAnalysisSchema = z.object({
     .describe(
       'Judge this first. True ONLY when the full text shows this is about a sport other than ice hockey, or is not sports content at all. Hockey at any level — NHL, AHL, ECHL, CHL, USHL, NCAA, PWHL, junior, women\'s — is false, and so is off-ice news about hockey people. When unsure, answer false; the remaining fields only matter then.',
     ),
+  language: z
+    .string()
+    .describe(
+      "The language the article is written in, as an ISO 639-1 code — 'en', 'fr', 'sv'. Judge it from the body text, not the club's location.",
+    ),
+  titleEnglish: z
+    .string()
+    .describe(
+      'The headline in English. If the article is ALREADY in English, repeat its headline back exactly as given, character for character — do not rewrite, retitle, clean up or improve it. Only when the article is in another language should this differ from the original: then translate the headline faithfully, keeping club and player names as they are written.',
+    ),
   excerpt: z
     .string()
     .describe(
-      'A natural, news-style summary in 1-3 sentences that states the actual news directly. Do NOT describe the article — never start with meta-phrases like "The article discusses/reports/explains/covers...". Lead with the facts (who/what), as a news blurb would.',
+      'A natural, news-style summary in 1-3 sentences that states the actual news directly, ALWAYS written in English whatever language the article is in. Do NOT describe the article — never start with meta-phrases like "The article discusses/reports/explains/covers...". Lead with the facts (who/what), as a news blurb would.',
     ),
   isGameRecap: z.boolean(),
   players: z.array(z.string()).describe('Full player names mentioned'),
   teams: z
     .array(
       z.object({
-        name: z.string(),
+        name: z
+          .string()
+          .describe(
+            'Club name in place-then-nickname order as an English-language league table writes it — "Rimouski Océanic", not "L\'Océanic de Rimouski"; "Québec Remparts", not "Remparts de Québec".',
+          ),
         relevance: z
           .number()
           .min(0)
@@ -218,11 +232,20 @@ export async function scanFeed(feedId: string): Promise<ScanResult> {
         continue;
       }
 
+      // The CHL's QMJHL club sites publish in French; readers here read English.
+      // Trust the translation only when the model says the article isn't English —
+      // asking it to echo an English headline back is a rewrite waiting to happen,
+      // so an 'en' article always keeps the publisher's exact words.
+      const title =
+        analysis.language?.toLowerCase().startsWith('en') === false && analysis.titleEnglish?.trim()
+          ? analysis.titleEnglish.trim()
+          : item.title;
+
       // Insert article
       const { data: article, error: articleError } = await supabase
         .from('articles')
         .insert({
-          title: item.title,
+          title,
           url: item.url,
           source_id: feed.source_id,
           excerpt: analysis.excerpt,

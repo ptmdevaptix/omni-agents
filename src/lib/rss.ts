@@ -48,9 +48,15 @@ function decodeHtmlEntities(str: string): string {
 // page → "Unable to parse XML". Use a modest "compatible" UA (same as the NHL
 // client): a FULL browser UA is worse — ESPN answers those with a 202 + empty
 // body (its bot challenge for fake browsers), which also fails to parse.
+//
+// Accept-Language matters too, and not for content negotiation: a request that
+// sends a User-Agent and an Accept but no Accept-Language reads as non-browser
+// to some WAFs. hamiltonhammers.com answers exactly that combination with a 406
+// and any other combination with a 200.
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (compatible; OmniAgents/1.0; +https://github.com)',
   Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+  'Accept-Language': 'en-CA,en;q=0.9,fr-CA;q=0.8,fr;q=0.7',
 };
 
 /** Strip tags and collapse whitespace — enough to turn feed HTML into prose. */
