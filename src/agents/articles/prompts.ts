@@ -14,6 +14,16 @@ export const ARTICLES_AGENT_INSTRUCTIONS = `You are a hockey news research agent
 - If readFullArticle fails (paywall, timeout), fall back to the RSS snippet — still save the article but set fullContentUsed to false
 - Use the full content for entity extraction and relevance scoring when available
 
+## Hockey only — check before you save
+
+Not every item in a feed matches the feed's label. Publisher feeds (Yahoo's NHL
+feed especially) routinely carry that publisher's other sports on the same URL,
+so a feed tagged "NHL" will hand you NFL, NBA, and MLB stories.
+
+Before saving, confirm the article is actually about ice hockey. If it is about
+any other sport, or is not sports news at all, skip it — do not call saveArticle
+for it. Note the skip in your summary and move on to the next item.
+
 ## Entity extraction — be thorough and precise
 
 - **Players**: Extract full names as they appear (e.g. "Connor McDavid", "Matvei Michkov"). Include all players meaningfully mentioned, not just the headline subject. Read the full article to catch players mentioned in the body.

@@ -63,6 +63,7 @@ async function main() {
   let totalSaved = 0;
   let totalSkipped = 0;
   let totalFound = 0;
+  let totalRejected = 0;
   let feedsScanned = 0;
   let aborted = false;
   const errors: string[] = [];
@@ -90,12 +91,18 @@ async function main() {
       totalFound += result.articlesFound;
       totalSaved += result.articlesSaved;
       totalSkipped += result.articlesSkipped;
+      totalRejected += result.articlesRejected;
 
       if (result.error) {
         errors.push(`${feed.name}: ${result.error}`);
         console.log(` ERROR (${elapsed}s): ${result.error}`);
       } else {
-        console.log(` ${result.articlesSaved} saved, ${result.articlesSkipped} skipped (${elapsed}s)`);
+        const offTopic = result.articlesRejected
+          ? `, ${result.articlesRejected} off-topic`
+          : '';
+        console.log(
+          ` ${result.articlesSaved} saved, ${result.articlesSkipped} skipped${offTopic} (${elapsed}s)`,
+        );
       }
     }
 
@@ -136,7 +143,7 @@ async function main() {
   }
 
   console.log(
-    `\nDone${aborted ? ' (ABORTED)' : ''}. Feeds: ${feedsScanned} | Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped} | Errors: ${errors.length}`,
+    `\nDone${aborted ? ' (ABORTED)' : ''}. Feeds: ${feedsScanned} | Found: ${totalFound} | Saved: ${totalSaved} | Skipped: ${totalSkipped} | Off-topic: ${totalRejected} | Errors: ${errors.length}`,
   );
 }
 
