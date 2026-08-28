@@ -53,6 +53,38 @@ const FETCH_HEADERS = {
   Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
 };
 
+/** Strip tags and collapse whitespace — enough to turn feed HTML into prose. */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Plain-text body for an item.
+ *
+ * Publishers disagree about where the text lives. Most fill <description>, but
+ * WordPress feeds (chl.ca's club sites, for one) leave it empty and put the
+ * whole story in <content:encoded> — which left those items with no text at all
+ * for the topic gate and for the fallback when the page read fails.
+ */
+function itemText(item: Record<string, unknown>): string | undefined {
+  const candidates = [
+    item.contentSnippet,
+    item['content:encodedSnippet'],
+    item.content,
+    item['content:encoded'],
+  ];
+  for (const c of candidates) {
+    if (typeof c !== 'string') continue;
+    const text = stripHtml(c);
+    if (text) return decodeHtmlEntities(text);
+  }
+  return undefined;
+}
+
 /**
  * Fetch and parse an RSS/Atom feed, returning normalized items.
  */
@@ -75,9 +107,7 @@ export async function fetchFeed(feedUrl: string): Promise<FeedItem[]> {
     author: item.creator ?? item['dc:creator']
       ? decodeHtmlEntities(item.creator ?? item['dc:creator'] ?? '')
       : undefined,
-    excerpt: item.contentSnippet ?? item.content
-      ? decodeHtmlEntities(item.contentSnippet ?? item.content ?? '')
-      : undefined,
+    excerpt: itemText(item as Record<string, unknown>),
     imageUrl:
       item.enclosure?.url ??
       (item as Record<string, unknown>)['media:thumbnail']?.toString() ??

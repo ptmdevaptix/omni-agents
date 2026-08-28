@@ -29,6 +29,26 @@ const topicGateSchema = z.object({
  * nicknames it doesn't recognize. Rejects only on a confident "other sport",
  * and fails open if the gate itself errors.
  */
+/**
+ * The opening lines of a story, for the gate to judge on.
+ *
+ * Some feeds carry no <description> at all, so the whole article body is the
+ * only text available; sending all of it on every item is waste. A news lede
+ * names its subject, so the first few sentences decide the sport as well as the
+ * full text would.
+ */
+function lede(text: string | undefined, max = 400): string {
+  if (!text) return '';
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  // Prefer a sentence end, then a word boundary, over cutting mid-word.
+  const stop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+  if (stop > max * 0.4) return head.slice(0, stop + 1);
+  const space = head.lastIndexOf(' ');
+  return (space > 0 ? head.slice(0, space) : head) + '…';
+}
+
 export async function isHockeyItem(title: string, excerpt?: string): Promise<boolean> {
   try {
     const { output } = await generateText({
@@ -172,7 +192,7 @@ export async function scanFeed(feedId: string): Promise<ScanResult> {
   for (const item of newItems) {
     try {
       // Topic gate on cheap RSS metadata, before paying for a full page read.
-      if (!(await isHockeyItem(item.title, item.excerpt))) {
+      if (!(await isHockeyItem(item.title, lede(item.excerpt)))) {
         rejected++;
         continue;
       }
