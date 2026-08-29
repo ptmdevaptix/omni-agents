@@ -49,6 +49,66 @@ function lede(text: string | undefined, max = 400): string {
   return (space > 0 ? head.slice(0, space) : head) + '…';
 }
 
+/** A headline is SHOUTING if it has real letters and none of them are lowercase. */
+function isAllCaps(title: string): boolean {
+  return title.length > 12 && /[A-Z]{3}/.test(title) && !/[a-z]/.test(title);
+}
+
+// Words a headline leaves lowercase unless they open or close it.
+const MINOR_WORDS = new Set(['a','an','and','as','at','but','by','for','from','in','nor','of','on','or','the','to','v','vs','with']);
+// Left uppercase wherever they appear.
+const ACRONYMS = new Set(['AHL','NHL','ECHL','OHL','WHL','QMJHL','USHL','NCAA','PWHL','KHL','GM','PTO','OT','TV','MVP','IR','II','III','IV','USA','U18','U20','CHL','NAHL','SPHL','LNAH','ATO','SPC','WJC']);
+
+/**
+ * Restore normal capitalisation to a SHOUTED headline.
+ *
+ * The model does this better — it knows "MCDAVID" is McDavid — so this only runs
+ * when the model's answer can't be trusted to be a pure re-casing.
+ */
+function toHeadlineCase(title: string): string {
+  const words = title.split(/(\s+)/);
+  let wordIndex = -1;
+  const total = words.filter((w) => w.trim()).length;
+  return words
+    .map((token) => {
+      if (!token.trim()) return token;
+      wordIndex++;
+      const bare = token.replace(/[^A-Za-z]/g, '');
+      if (ACRONYMS.has(bare)) return token;
+      const lower = token.toLowerCase();
+      if (wordIndex > 0 && wordIndex < total - 1 && MINOR_WORDS.has(lower.replace(/[^a-z]/g, ''))) {
+        return lower;
+      }
+      // Capitalise after a space, a hyphen, a slash and an apostrophe that starts a
+      // name ("O'BRIEN" → "O'Brien"), but not a possessive ("PATS'" → "Pats'").
+      return lower.replace(/(^|[-/]|(?<=^[a-z])')([a-z])/g, (_, pre: string, ch: string) => pre + ch.toUpperCase());
+    })
+    .join('');
+}
+
+/**
+ * The headline as readers should see it.
+ *
+ * Two problems, one answer: the QMJHL's club sites publish in French, and several
+ * AHL and CHL clubs shout their headlines in capitals. The analysis call already
+ * reads the article, so it returns the English headline for free.
+ *
+ * An English article normally keeps the publisher's exact words — asking a model
+ * to echo a headline back is a rewrite waiting to happen. The exception is a
+ * SHOUTED headline, and even then the model's version is accepted only if it
+ * differs from the original by capitalisation alone; anything else falls back to
+ * the deterministic re-caser.
+ */
+export function displayTitle(original: string, language?: string, suggested?: string): string {
+  const proposed = suggested?.trim();
+  const isEnglish = !language || language.toLowerCase().startsWith('en');
+
+  if (!isEnglish && proposed) return proposed;
+  if (!isAllCaps(original)) return original;
+  if (proposed && proposed.toLowerCase() === original.toLowerCase()) return proposed;
+  return toHeadlineCase(original);
+}
+
 export async function isHockeyItem(title: string, excerpt?: string): Promise<boolean> {
   try {
     const { output } = await generateText({
@@ -87,7 +147,7 @@ const articleAnalysisSchema = z.object({
   titleEnglish: z
     .string()
     .describe(
-      'The headline in English. If the article is ALREADY in English, repeat its headline back exactly as given, character for character — do not rewrite, retitle, clean up or improve it. Only when the article is in another language should this differ from the original: then translate the headline faithfully, keeping club and player names as they are written.',
+      'The headline in English. If the article is ALREADY in English, repeat its headline back exactly as given, character for character — do not rewrite, retitle, clean up or improve it. The ONE exception: if the headline is written in ALL CAPITALS, give it back in normal headline capitalisation, spelling names the way they are properly spelled (McDavid, O\'Brien, DeBrusk, LeBlanc) and leaving acronyms capitalised (AHL, NHL, GM, PTO, OT). Only when the article is in another language should the wording differ from the original: then translate the headline faithfully, keeping club and player names as they are written.',
     ),
   excerpt: z
     .string()
@@ -232,14 +292,7 @@ export async function scanFeed(feedId: string): Promise<ScanResult> {
         continue;
       }
 
-      // The CHL's QMJHL club sites publish in French; readers here read English.
-      // Trust the translation only when the model says the article isn't English —
-      // asking it to echo an English headline back is a rewrite waiting to happen,
-      // so an 'en' article always keeps the publisher's exact words.
-      const title =
-        analysis.language?.toLowerCase().startsWith('en') === false && analysis.titleEnglish?.trim()
-          ? analysis.titleEnglish.trim()
-          : item.title;
+      const title = displayTitle(item.title, analysis.language, analysis.titleEnglish);
 
       // Insert article
       const { data: article, error: articleError } = await supabase
