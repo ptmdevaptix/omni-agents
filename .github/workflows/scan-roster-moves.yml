@@ -4,9 +4,25 @@ name: Scan roster moves (free sources)
 # daily — re-runs just upsert/corroborate via dedup_key. No LLM or X token
 # needed; only the Supabase secrets. (The X-sourced scanner is separate and
 # manual — see scan-moves.yml.)
+#
+# PAUSED for the 2026-27 season — manual only, like scan-moves.yml.
+#
+# This work is inference: it reads news sources to guess who moved, which was the
+# only way to know a roster over the summer. It isn't any more. omni-hockey now
+# re-reads all 62 schools' official rosters nightly, so the active roster comes
+# from the schools themselves and doesn't need deriving. season-diff is the same
+# story from the other side: what changed since last season is an off-season
+# question, and once games are being played the current roster is the one that
+# matters.
+#
+# REVISIT around March, when the season ends and the portal opens — that is when
+# inference becomes the only available source again and this earns its schedule
+# back. Worth improving then rather than restoring as-is.
+#
+# Run it by hand anytime from the Actions tab; nothing else changed.
 on:
-  schedule:
-    - cron: '0 11 * * *' # daily ~11:00 UTC (GitHub cron is best-effort)
+  # schedule:
+  #   - cron: '0 11 * * *' # daily ~11:00 UTC (GitHub cron is best-effort)
   workflow_dispatch:
 
 # Don't let two runs race the DB; a new run waits.
