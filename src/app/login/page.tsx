@@ -29,7 +29,11 @@ function LoginForm() {
       const from = searchParams.get('from') || '/articles';
       router.push(from);
     } else {
-      setError('Invalid password');
+      // Report what actually failed. This used to say "Invalid password" for every non-OK response,
+      // so a misconfigured deployment or a 500 was indistinguishable from typing it wrong — and the
+      // one message it showed sent you looking in the wrong place.
+      const detail = await res.json().catch(() => null);
+      setError(detail?.error || `Sign-in failed (${res.status})`);
       setLoading(false);
     }
   }
