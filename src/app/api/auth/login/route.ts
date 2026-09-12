@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { issueSession } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const { password } = await request.json();
@@ -20,13 +21,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
   }
 
+  // Signed, not the literal string "authenticated". That old value was a constant checked against
+  // itself, so setting one cookie by hand bypassed the password entirely.
+  const session = await issueSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Login is not configured on this deployment' }, { status: 503 });
+  }
+
   const response = NextResponse.json({ success: true });
-  response.cookies.set('auth', 'authenticated', {
+  response.cookies.set(session.name, session.value, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    maxAge: session.maxAge,
   });
 
   return response;
