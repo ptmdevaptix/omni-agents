@@ -77,13 +77,21 @@ function sameOrigin(c: Candidate): boolean {
   return short.length >= 6 && long.startsWith(short);
 }
 
-/** Club+season entries both rows carry. Memoised per candidate so it is not recomputed per list item. */
+/**
+ * Club+season entries both rows carry.
+ *
+ * Compared on club and season only — the jersey and the "(camp)" marker are display detail and must
+ * not affect the match, because the two feeds routinely record different numbers for the same player
+ * at the same club. Memoised per candidate so it is not recomputed per list item.
+ */
+const clubSeason = (label: string) => label.replace(/\s+#\d+(\s+\(camp\))?$/, '');
+
 const sharedCache = new WeakMap<Candidate, Set<string>>();
 function sharedTeams(c: Candidate): Set<string> {
   let hit = sharedCache.get(c);
   if (!hit) {
-    const b = new Set(c.teams_b ?? []);
-    hit = new Set((c.teams_a ?? []).filter((t) => b.has(t)));
+    const b = new Set((c.teams_b ?? []).map(clubSeason));
+    hit = new Set((c.teams_a ?? []).filter((t) => b.has(clubSeason(t))).map(clubSeason));
     sharedCache.set(c, hit);
   }
   return hit;
@@ -344,7 +352,7 @@ export default function PlayerMergesPage() {
                             ) : (
                               <ul className="space-y-0.5">
                                 {side.teams.map((t) => {
-                                  const shared = sharedTeams(c).has(t);
+                                  const shared = sharedTeams(c).has(clubSeason(t));
                                   return (
                                     <li
                                       key={t}
