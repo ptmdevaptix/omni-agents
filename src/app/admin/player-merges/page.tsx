@@ -116,11 +116,15 @@ function sameOrigin(c: Candidate): boolean {
 /**
  * Club+season entries both rows carry.
  *
- * Compared on club and season only — the jersey and the "(camp)" marker are display detail and must
- * not affect the match, because the two feeds routinely record different numbers for the same player
- * at the same club. Memoised per candidate so it is not recomputed per list item.
+ * Compared on club and season only — the jersey and any note after it are display detail and must not
+ * affect the match, because the two feeds routinely record different numbers for the same player at
+ * the same club. Memoised per candidate so it is not recomputed per list item.
+ *
+ * The trailing note is matched loosely on purpose: it has already changed once, from "(camp)" to
+ * "(camp number)", and a regex pinned to the exact wording silently stops stripping it, which drops
+ * the shared-club highlight on precisely the rows that carry one.
  */
-const clubSeason = (label: string) => label.replace(/\s+#\d+(\s+\(camp\))?$/, '');
+const clubSeason = (label: string) => label.replace(/\s+#\d+(\s+\([^)]*\))?$/, '');
 
 const sharedCache = new WeakMap<Candidate, Set<string>>();
 function sharedTeams(c: Candidate): Set<string> {

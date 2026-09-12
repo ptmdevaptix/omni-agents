@@ -55,13 +55,16 @@ interface TeamPlayerRow {
 }
 
 /**
- * A jersey in the 100s or 200s is a training-camp number, not a roster number.
+ * A jersey in the 100s or 200s is a camp/tryout NUMBER. That is all it says.
  *
- * Worth calling out, because it explains a discrepancy that otherwise looks like bad data: Jac Carli
- * appears on La Ronge's 2025 roster at #123 and Elite Prospects shows him with Castlegar that season.
- * Both are right — he attended the camp, did not stick, and played elsewhere. 8% of our roster links
- * are camp appearances, so a reviewer needs to know which they are looking at before treating a club
- * as proof of anything.
+ * Worth surfacing, because it explains discrepancies that otherwise look like bad data: Jac Carli
+ * appears on La Ronge's 2025 roster at #123 while Elite Prospects has him with Castlegar that season
+ * — he attended the camp, did not stick, and played elsewhere.
+ *
+ * But it does NOT mean the player was only a camp invitee. Jack Johnson wears #129 on our Navan Grads
+ * row and went on to play 44 games for that club. The number is a fact about the roster we captured;
+ * his status is an inference we cannot make from it, so the label describes the number and stops
+ * there.
  */
 const CAMP_JERSEY = 100;
 
@@ -94,7 +97,7 @@ async function teamsFor(playerIds: string[]): Promise<Map<string, string[]>> {
       const season = row.start_date ? row.start_date.slice(0, 4) : '?';
       const camp = row.jersey_number != null && row.jersey_number >= CAMP_JERSEY;
       const num = row.jersey_number != null ? ` #${row.jersey_number}` : '';
-      const label = `${club} ${season}${num}${camp ? ' (camp)' : ''}`;
+      const label = `${club} ${season}${num}${camp ? ' (camp number)' : ''}`;
       const list = byPlayer.get(row.player_id) ?? [];
       if (!list.includes(label)) list.push(label);
       byPlayer.set(row.player_id, list);
