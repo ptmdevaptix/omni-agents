@@ -50,8 +50,20 @@ const BAND_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 interface TeamPlayerRow {
   player_id: string;
   start_date: string | null;
+  jersey_number: number | null;
   teams: { place_name: string | null; nickname: string | null } | null;
 }
+
+/**
+ * A jersey in the 100s or 200s is a training-camp number, not a roster number.
+ *
+ * Worth calling out, because it explains a discrepancy that otherwise looks like bad data: Jac Carli
+ * appears on La Ronge's 2025 roster at #123 and Elite Prospects shows him with Castlegar that season.
+ * Both are right — he attended the camp, did not stick, and played elsewhere. 8% of our roster links
+ * are camp appearances, so a reviewer needs to know which they are looking at before treating a club
+ * as proof of anything.
+ */
+const CAMP_JERSEY = 100;
 
 /**
  * Roster history per player, for the two ids in each candidate.
@@ -71,7 +83,7 @@ async function teamsFor(playerIds: string[]): Promise<Map<string, string[]>> {
   for (let i = 0; i < playerIds.length; i += 100) {
     const { data, error } = await supabase
       .from('team_players')
-      .select('player_id, start_date, teams(place_name, nickname)')
+      .select('player_id, start_date, jersey_number, teams(place_name, nickname)')
       .in('player_id', playerIds.slice(i, i + 100));
     // Supporting detail, not the decision itself — a failure here should not empty the queue.
     if (error || !data) continue;
@@ -80,7 +92,9 @@ async function teamsFor(playerIds: string[]): Promise<Map<string, string[]>> {
       const club = [row.teams?.place_name, row.teams?.nickname].filter(Boolean).join(' ');
       if (!club) continue;
       const season = row.start_date ? row.start_date.slice(0, 4) : '?';
-      const label = `${club} ${season}`;
+      const camp = row.jersey_number != null && row.jersey_number >= CAMP_JERSEY;
+      const num = row.jersey_number != null ? ` #${row.jersey_number}` : '';
+      const label = `${club} ${season}${num}${camp ? ' (camp)' : ''}`;
       const list = byPlayer.get(row.player_id) ?? [];
       if (!list.includes(label)) list.push(label);
       byPlayer.set(row.player_id, list);
