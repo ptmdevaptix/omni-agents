@@ -133,7 +133,57 @@ async function originsFor(playerIds: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-export async function GET() {
+/**
+ * Player search, for merging a pair the detector never proposed.
+ *
+ * The bands reject some pairs outright — conflicting position families, conflicting birth dates — and
+ * that is right at scale but leaves no way to overrule a rule when a human knows better. Jack Johnson
+ * is the case: three rows, and the two carrying positions (D and F) are disqualified against each
+ * other, so no amount of judging the offered pairs will ever surface them together.
+ *
+ * Rules handle volume; this handles the exceptions.
+ */
+async function searchPlayers(q: string) {
+  const term = q.trim();
+  if (term.length < 2) return [];
+
+  // Match either name part, so "johnson" and "jack johnson" both work.
+  const words = term.split(/\s+/).filter(Boolean);
+  const ors = words.flatMap((w) => [`first_name.ilike.%${w}%`, `last_name.ilike.%${w}%`]).join(',');
+
+  const { data, error } = await supabase
+    .from('players')
+    .select('id, slug, first_name, last_name, birth_date, position, origin, external_ids')
+    .is('merged_into', null)          // a tombstone is already merged; offering it would be a loop
+    .or(ors)
+    .limit(40);
+  if (error || !data) return [];
+
+  type Row = {
+    id: string; slug: string | null; first_name: string | null; last_name: string | null;
+    birth_date: string | null; position: string | null; origin: string | null;
+    external_ids: Record<string, unknown> | null;
+  };
+  const ids = (data as Row[]).map((p) => p.id);
+  const teams = await teamsFor(ids);
+
+  return (data as Row[]).map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    name: [p.first_name, p.last_name].filter(Boolean).join(' '),
+    birth_date: p.birth_date,
+    position: p.position,
+    origin: p.origin,
+    source: Object.keys(p.external_ids ?? {}).sort().join('+') || 'no external id',
+    teams: teams.get(p.id) ?? [],
+  }));
+}
+
+export async function GET(request: NextRequest) {
+  // Search mode — used by the manual-merge panel, not the queue.
+  const q = new URL(request.url).searchParams.get('q');
+  if (q !== null) return Response.json({ results: await searchPlayers(q) });
+
   const [candidates, verdicts] = await Promise.all([
     fetchAll<CandidateRow>(
       () =>

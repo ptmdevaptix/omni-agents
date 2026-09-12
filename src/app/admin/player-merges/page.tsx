@@ -44,6 +44,17 @@ interface Candidate {
   origin_b: string | null;
 }
 
+interface SearchHit {
+  id: string;
+  slug: string | null;
+  name: string;
+  birth_date: string | null;
+  position: string | null;
+  origin: string | null;
+  source: string;
+  teams: string[];
+}
+
 interface Judged {
   dedup_key: string;
   verdict: string;
@@ -166,6 +177,11 @@ export default function PlayerMergesPage() {
   const [showLow, setShowLow] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [manualOpen, setManualOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchHit[]>([]);
+  const [picked, setPicked] = useState<SearchHit[]>([]);
+  const [manualNote, setManualNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -233,6 +249,43 @@ export default function PlayerMergesPage() {
       // run, so the card would come back unchanged and read as a failed save.
       setSaved((prev) => ({ ...prev, [playerId]: true }));
       setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function runSearch() {
+    const res = await fetch(`/api/admin/player-merges?q=${encodeURIComponent(query)}`);
+    const d = await res.json();
+    setResults(d.results ?? []);
+  }
+
+  /**
+   * Record a merge for a pair the detector never proposed.
+   *
+   * The key is built the same way the detector builds it — sorted ids — so the sweep treats it
+   * identically to a reviewed candidate and a later detector run sees the pair as already judged.
+   */
+  async function mergeManually() {
+    if (picked.length !== 2) return;
+    const [x, y] = [...picked].sort((a, b) => a.id.localeCompare(b.id));
+    setSaving('manual');
+    try {
+      const res = await fetch('/api/admin/player-merges', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dedupKey: `merge:${x.id}:${y.id}`, verdict: 'duplicate',
+          reviewer: reviewer || null, nameA: x.name, nameB: y.name,
+        }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      setManualNote(`Recorded: ${x.name} = ${y.name}. Merges on the next sweep.`);
+      setPicked([]);
+      void load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -321,6 +374,85 @@ export default function PlayerMergesPage() {
             </Button>
           )}
         </div>
+
+        {/* Merging a pair the rules rejected. The bands disqualify conflicting positions and birth
+            dates outright, which is right at scale but leaves no way to overrule one: three Jack
+            Johnsons, and the two carrying positions (D and F) are disqualified against each other, so
+            no amount of judging the offered pairs will ever surface them together. */}
+        <Card className="mb-6">
+          <CardContent className="py-3">
+            <button
+              className="text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setManualOpen((o) => !o)}
+            >
+              {manualOpen ? '▾' : '▸'} Merge two players the queue didn&apos;t pair
+            </button>
+
+            {manualOpen && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  For pairs the rules reject — a position or birth date that disagrees between sources
+                  — where you know they are the same player.
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void runSearch(); }}
+                    placeholder="Search by name, e.g. Jack Johnson"
+                    className="max-w-sm"
+                  />
+                  <Button variant="outline" size="sm" onClick={() => void runSearch()}>Search</Button>
+                </div>
+
+                {results.length > 0 && (
+                  <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                    {results.map((r) => {
+                      const on = picked.some((p) => p.id === r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() =>
+                            setPicked((prev) =>
+                              on ? prev.filter((p) => p.id !== r.id)
+                                 : prev.length < 2 ? [...prev, r] : prev)
+                          }
+                          className={`block w-full rounded px-2 py-1 text-left text-xs ${
+                            on ? 'bg-sky-500/15 text-sky-300' : 'hover:bg-muted'
+                          }`}
+                        >
+                          <span className="font-medium">{r.name}</span>
+                          <span className="text-muted-foreground">
+                            {' '}· {r.birth_date ?? 'no birth date'} · {r.position ?? 'no position'} ·{' '}
+                            {r.source}
+                            {r.teams.length ? ` · ${r.teams[0]}` : ''}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {picked.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Selected:</span>
+                    {picked.map((p) => <Badge key={p.id} variant="outline">{p.name}</Badge>)}
+                    <Button
+                      size="sm"
+                      disabled={picked.length !== 2 || saving === 'manual'}
+                      onClick={() => void mergeManually()}
+                    >
+                      These are the same player
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setPicked([])}>Clear</Button>
+                  </div>
+                )}
+
+                {manualNote && <p className="text-xs text-emerald-400">{manualNote}</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
