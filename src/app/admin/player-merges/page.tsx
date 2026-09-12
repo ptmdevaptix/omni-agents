@@ -61,6 +61,21 @@ const BAND_STYLE: Record<string, string> = {
 };
 
 /**
+ * Name as a query string for the outward search links.
+ *
+ * Accents are stripped and punctuation dropped: both sites are name-search endpoints that index
+ * plain ASCII, so "Maël St.-Denis" finds nothing while "Mael St Denis" does. Spaces become "+", the
+ * form both URLs use.
+ */
+function searchQuery(name: string): string {
+  const plain = (name || '')
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9\s]/g, ' ')
+    .trim().replace(/\s+/g, ' ');
+  return encodeURIComponent(plain).replace(/%20/g, '+');
+}
+
+/**
  * Do both rows name the same hometown?
  *
  * Prefix-tolerant, because sources record it at different granularity — "Medicine Hat, AB, CAN"
@@ -368,14 +383,35 @@ export default function PlayerMergesPage() {
                           </dd>
                         </div>
                       </dl>
-                      <a
-                        className="mt-2 inline-block text-xs text-sky-400 hover:underline"
-                        href={`https://omnihockey.com/players/${side.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Open player page ↗
-                      </a>
+                      {/* Outward lookups. Per side rather than per pair, because the two rows often
+                          spell the name differently (Josh/Joshua, Will/William) — which is precisely
+                          when you want to search both spellings. */}
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                        <a
+                          className="text-sky-400 hover:underline"
+                          href={`https://omnihockey.com/players/${side.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Player page ↗
+                        </a>
+                        <a
+                          className="text-sky-400 hover:underline"
+                          href={`https://www.eliteprospects.com/search/player?q=${searchQuery(side.name)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Elite Prospects ↗
+                        </a>
+                        <a
+                          className="text-sky-400 hover:underline"
+                          href={`https://www.hockeydb.com/ihdb/stats/find_player.php?full_name=${searchQuery(side.name)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          HockeyDB ↗
+                        </a>
+                      </div>
 
                       {/* Supplying the missing value is usually more useful than judging the pair:
                           a birth date is what the automatic band needs, so filling it lets the next
