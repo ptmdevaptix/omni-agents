@@ -61,6 +61,27 @@ const BAND_STYLE: Record<string, string> = {
 };
 
 /**
+ * Split the name-frequency signal out of the rest.
+ *
+ * It belongs apart from "Matched on", which lists things the two rows AGREE about. Frequency is not
+ * agreement — it says how much that agreement is worth, and for a common name it argues the other
+ * way. Buried in the same sentence it reads as another point in favour.
+ */
+function splitSignals(signals: string[] | null): { frequency: string | null; agreed: string[] } {
+  const all = signals ?? [];
+  const isFreq = (s: string) =>
+    s.startsWith('COMMON name') || s.startsWith('uncommon in our data') || s.startsWith('name frequency');
+  return { frequency: all.find(isFreq) ?? null, agreed: all.filter((s) => !isFreq(s)) };
+}
+
+/** How to render a frequency note: a common name is a warning, everything else is context. */
+function frequencyTone(f: string): string {
+  if (f.startsWith('COMMON name')) return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+  if (f.startsWith('uncommon in our data')) return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  return 'bg-muted text-muted-foreground border-border';
+}
+
+/**
  * Name as a query string for the outward search links.
  *
  * Accents are stripped and punctuation dropped: both sites are name-search endpoints that index
@@ -312,8 +333,16 @@ export default function PlayerMergesPage() {
           {visible.map((c) => (
             <Card key={c.dedup_key} className={c.verdict ? 'opacity-60' : undefined}>
               <CardContent className="py-4">
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
                   <Badge className={BAND_STYLE[c.band] ?? BAND_STYLE.LOW}>{c.band}</Badge>
+                  {/* How much the name match is worth, next to the band rather than in the agreement
+                      list — for a common name it argues AGAINST the pair, and reading it as another
+                      point in favour is the mistake this placement avoids. */}
+                  {splitSignals(c.signals).frequency && (
+                    <Badge className={frequencyTone(splitSignals(c.signals).frequency!)}>
+                      {splitSignals(c.signals).frequency}
+                    </Badge>
+                  )}
                   {c.verdict && (
                     <Badge variant="outline">
                       {VERDICT_LABEL[c.verdict.verdict] ?? c.verdict.verdict}
@@ -470,9 +499,9 @@ export default function PlayerMergesPage() {
 
                 {/* Why this was proposed. A merge has to be explainable before it is accepted, and
                     without this the reviewer is being asked to trust a score. */}
-                {c.signals && c.signals.length > 0 && (
+                {splitSignals(c.signals).agreed.length > 0 && (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Matched on: {c.signals.join(' · ')}
+                    Matched on: {splitSignals(c.signals).agreed.join(' · ')}
                   </p>
                 )}
 
