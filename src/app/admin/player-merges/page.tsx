@@ -95,6 +95,7 @@ export default function PlayerMergesPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState('');
   const [showJudged, setShowJudged] = useState(false);
+  const [showLow, setShowLow] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
 
@@ -186,7 +187,15 @@ export default function PlayerMergesPage() {
     }
   }
 
-  const open = useMemo(() => items.filter((i) => !i.verdict), [items]);
+  // LOW is "record only, never link" — a fuzzy-name proposal kept for the record, not work to hand
+  // someone. Hidden by default so the queue is the pairs actually worth a decision; the first run
+  // read as "255 to review" when 104 of them were never meant to be acted on.
+  const visible = useMemo(
+    () => (showLow ? items : items.filter((i) => i.band !== 'LOW')),
+    [items, showLow],
+  );
+  const lowCount = useMemo(() => items.filter((i) => i.band === 'LOW' && !i.verdict).length, [items]);
+  const open = useMemo(() => visible.filter((i) => !i.verdict), [visible]);
   const counts = useMemo(
     () => ({
       open: open.length,
@@ -232,7 +241,12 @@ export default function PlayerMergesPage() {
           <Badge variant="outline">{counts.open} to review</Badge>
           {counts.high > 0 && <Badge className={BAND_STYLE.HIGH}>{counts.high} high</Badge>}
           {counts.medium > 0 && <Badge className={BAND_STYLE.MEDIUM}>{counts.medium} medium</Badge>}
-          {counts.low > 0 && <Badge className={BAND_STYLE.LOW}>{counts.low} low</Badge>}
+          {showLow && counts.low > 0 && <Badge className={BAND_STYLE.LOW}>{counts.low} low</Badge>}
+          {lowCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setShowLow((s) => !s)}>
+              {showLow ? 'Hide' : 'Show'} {lowCount} fuzzy-name match{lowCount === 1 ? '' : 'es'}
+            </Button>
+          )}
           {judged.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setShowJudged((s) => !s)}>
               {showJudged ? 'Hide' : 'Show'} {judged.length} already decided
@@ -242,7 +256,7 @@ export default function PlayerMergesPage() {
 
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-        {!loading && items.length === 0 && (
+        {!loading && visible.length === 0 && (
           <Card>
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
               Nothing to review. Duplicates that clear the automatic bar are merged without appearing
@@ -252,7 +266,7 @@ export default function PlayerMergesPage() {
         )}
 
         <div className="space-y-3">
-          {items.map((c) => (
+          {visible.map((c) => (
             <Card key={c.dedup_key} className={c.verdict ? 'opacity-60' : undefined}>
               <CardContent className="py-4">
                 <div className="mb-3 flex items-center gap-2">
