@@ -36,6 +36,9 @@ interface Candidate {
   signals: string[] | null;
   detected_at: string;
   verdict: { verdict: string; reviewer: string | null; notes: string | null } | null;
+  /** Club + season, e.g. "St. Lawrence Saints 2026". Season always shown — see the API route. */
+  teams_a: string[];
+  teams_b: string[];
 }
 
 interface Judged {
@@ -53,6 +56,18 @@ const BAND_STYLE: Record<string, string> = {
   MEDIUM: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   LOW: 'bg-muted text-muted-foreground border-border',
 };
+
+/** Club+season entries both rows carry. Memoised per candidate so it is not recomputed per list item. */
+const sharedCache = new WeakMap<Candidate, Set<string>>();
+function sharedTeams(c: Candidate): Set<string> {
+  let hit = sharedCache.get(c);
+  if (!hit) {
+    const b = new Set(c.teams_b ?? []);
+    hit = new Set((c.teams_a ?? []).filter((t) => b.has(t)));
+    sharedCache.set(c, hit);
+  }
+  return hit;
+}
 
 const VERDICT_LABEL: Record<string, string> = {
   duplicate: 'Same player',
@@ -219,8 +234,8 @@ export default function PlayerMergesPage() {
                     than hunted for. */}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {([
-                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a },
-                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b },
+                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a, teams: c.teams_a ?? [] },
+                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b, teams: c.teams_b ?? [] },
                   ]).map((side, i) => (
                     <div key={i} className="rounded-md border border-border p-3">
                       <div className="font-medium">{side.name}</div>
@@ -236,6 +251,33 @@ export default function PlayerMergesPage() {
                         <div className="flex gap-2">
                           <dt className="w-16 shrink-0">Source</dt>
                           <dd>{side.src ?? '—'}</dd>
+                        </div>
+                        {/* Roster history is often the deciding evidence, especially where a birth
+                            date is missing: the same club in the same season is strong, while two
+                            different schools in one season means one of these rows is wrong about
+                            something. Shared entries are marked so the comparison is not manual. */}
+                        <div className="flex gap-2">
+                          <dt className="w-16 shrink-0">Teams</dt>
+                          <dd className="min-w-0">
+                            {side.teams.length === 0 ? (
+                              <span className="italic">none recorded</span>
+                            ) : (
+                              <ul className="space-y-0.5">
+                                {side.teams.map((t) => {
+                                  const shared = sharedTeams(c).has(t);
+                                  return (
+                                    <li
+                                      key={t}
+                                      className={shared ? 'font-medium text-emerald-400' : undefined}
+                                    >
+                                      {t}
+                                      {shared && ' ·shared'}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </dd>
                         </div>
                       </dl>
                       <a

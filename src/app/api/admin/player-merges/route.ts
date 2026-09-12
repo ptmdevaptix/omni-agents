@@ -47,6 +47,49 @@ interface VerdictRow {
 // attention before a pile of fuzzy-name proposals does.
 const BAND_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
+interface TeamPlayerRow {
+  player_id: string;
+  start_date: string | null;
+  teams: { place_name: string | null; nickname: string | null } | null;
+}
+
+/**
+ * Roster history per player, for the two ids in each candidate.
+ *
+ * Read live rather than denormalised into the candidate feed: the feed is a nightly snapshot, and a
+ * reviewer deciding whether two rows are one person should see the rosters as they are now, not as
+ * they were when the pair was proposed.
+ *
+ * Season is always shown. A club without one is misleading — two players at the same school in
+ * different years were never teammates, and that reads as shared history at a glance.
+ */
+async function teamsFor(playerIds: string[]): Promise<Map<string, string[]>> {
+  const byPlayer = new Map<string, string[]>();
+  if (!playerIds.length) return byPlayer;
+
+  // Chunked: a candidate list can carry hundreds of ids, and `in` goes into the URL.
+  for (let i = 0; i < playerIds.length; i += 100) {
+    const { data, error } = await supabase
+      .from('team_players')
+      .select('player_id, start_date, teams(place_name, nickname)')
+      .in('player_id', playerIds.slice(i, i + 100));
+    // Supporting detail, not the decision itself — a failure here should not empty the queue.
+    if (error || !data) continue;
+
+    for (const row of data as unknown as TeamPlayerRow[]) {
+      const club = [row.teams?.place_name, row.teams?.nickname].filter(Boolean).join(' ');
+      if (!club) continue;
+      const season = row.start_date ? row.start_date.slice(0, 4) : '?';
+      const label = `${club} ${season}`;
+      const list = byPlayer.get(row.player_id) ?? [];
+      if (!list.includes(label)) list.push(label);
+      byPlayer.set(row.player_id, list);
+    }
+  }
+  for (const list of byPlayer.values()) list.sort();
+  return byPlayer;
+}
+
 export async function GET() {
   const [candidates, verdicts] = await Promise.all([
     fetchAll<CandidateRow>(
@@ -63,8 +106,17 @@ export async function GET() {
 
   const verdictByKey = new Map(verdicts.map((v) => [v.dedup_key, v]));
 
+  const teams = await teamsFor([
+    ...new Set(candidates.flatMap((c) => [c.player_a, c.player_b])),
+  ]);
+
   const items = candidates
-    .map((c) => ({ ...c, verdict: verdictByKey.get(c.dedup_key) ?? null }))
+    .map((c) => ({
+      ...c,
+      verdict: verdictByKey.get(c.dedup_key) ?? null,
+      teams_a: teams.get(c.player_a) ?? [],
+      teams_b: teams.get(c.player_b) ?? [],
+    }))
     .sort((a, b) => (BAND_ORDER[a.band] ?? 9) - (BAND_ORDER[b.band] ?? 9));
 
   // A judged pair is dropped from the feed by the detector, so its verdict would otherwise vanish from
