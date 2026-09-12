@@ -39,6 +39,9 @@ interface Candidate {
   /** Club + season, e.g. "St. Lawrence Saints 2026". Season always shown — see the API route. */
   teams_a: string[];
   teams_b: string[];
+  /** Hometown, read live. Often the field that settles a pair the other columns cannot. */
+  origin_a: string | null;
+  origin_b: string | null;
 }
 
 interface Judged {
@@ -56,6 +59,23 @@ const BAND_STYLE: Record<string, string> = {
   MEDIUM: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   LOW: 'bg-muted text-muted-foreground border-border',
 };
+
+/**
+ * Do both rows name the same hometown?
+ *
+ * Prefix-tolerant, because sources record it at different granularity — "Medicine Hat, AB, CAN"
+ * against "Medicine Hat, AB" is one town, and an exact compare calls it a disagreement. Mirrors
+ * birthplaceAgrees in omni-hockey's lib/player-match.ts.
+ */
+function sameOrigin(c: Candidate): boolean {
+  const key = (s: string | null) => (s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+  const x = key(c.origin_a), y = key(c.origin_b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 6 && long.startsWith(short);
+}
 
 /** Club+season entries both rows carry. Memoised per candidate so it is not recomputed per list item. */
 const sharedCache = new WeakMap<Candidate, Set<string>>();
@@ -283,8 +303,8 @@ export default function PlayerMergesPage() {
                     than hunted for. */}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {([
-                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a, teams: c.teams_a ?? [] },
-                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b, teams: c.teams_b ?? [] },
+                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a, teams: c.teams_a ?? [], origin: c.origin_a },
+                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b, teams: c.teams_b ?? [], origin: c.origin_b },
                   ]).map((side, i) => (
                     <div key={i} className="rounded-md border border-border p-3">
                       <div className="font-medium">{side.name}</div>
@@ -296,6 +316,17 @@ export default function PlayerMergesPage() {
                         <div className="flex gap-2">
                           <dt className="w-16 shrink-0">Position</dt>
                           <dd>{side.pos ?? '—'}</dd>
+                        </div>
+                        {/* Often the deciding field, and it was missing: Ryan Miller's two rows both
+                            say Medicine Hat, AB, which settles the pair on sight. Highlighted when
+                            both sides agree, since that is the whole reason to show it. */}
+                        <div className="flex gap-2">
+                          <dt className="w-16 shrink-0">Hometown</dt>
+                          <dd className={
+                            side.origin && sameOrigin(c) ? 'font-medium text-emerald-400' : side.origin ? '' : 'italic'
+                          }>
+                            {side.origin ?? 'not recorded'}
+                          </dd>
                         </div>
                         <div className="flex gap-2">
                           <dt className="w-16 shrink-0">Source</dt>

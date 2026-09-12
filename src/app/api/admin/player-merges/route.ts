@@ -90,6 +90,32 @@ async function teamsFor(playerIds: string[]): Promise<Map<string, string[]>> {
   return byPlayer;
 }
 
+/**
+ * Hometown per player, read live for the same reason team history is: the feed is a nightly snapshot
+ * and a reviewer should see the row as it stands now, including any correction typed on this page.
+ *
+ * It earns its place — Ryan Miller's two rows read "Medicine Hat, AB, CAN" and "Medicine Hat, AB",
+ * which settles the pair on sight, and the card was not showing it.
+ */
+async function originsFor(playerIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < playerIds.length; i += 100) {
+    const { data, error } = await supabase
+      .from('players')
+      .select('id, origin, origin_country')
+      .in('id', playerIds.slice(i, i + 100));
+    if (error || !data) continue;
+    for (const p of data as { id: string; origin: string | null; origin_country: string | null }[]) {
+      // Country only when it adds something the town string does not already carry.
+      const parts = [p.origin, p.origin_country].filter(Boolean) as string[];
+      const label = parts.length === 2 && parts[0].toUpperCase().includes(parts[1].toUpperCase())
+        ? parts[0] : parts.join(', ');
+      if (label) out.set(p.id, label);
+    }
+  }
+  return out;
+}
+
 export async function GET() {
   const [candidates, verdicts] = await Promise.all([
     fetchAll<CandidateRow>(
@@ -106,9 +132,8 @@ export async function GET() {
 
   const verdictByKey = new Map(verdicts.map((v) => [v.dedup_key, v]));
 
-  const teams = await teamsFor([
-    ...new Set(candidates.flatMap((c) => [c.player_a, c.player_b])),
-  ]);
+  const ids = [...new Set(candidates.flatMap((c) => [c.player_a, c.player_b]))];
+  const [teams, origins] = await Promise.all([teamsFor(ids), originsFor(ids)]);
 
   const items = candidates
     .map((c) => ({
@@ -116,6 +141,8 @@ export async function GET() {
       verdict: verdictByKey.get(c.dedup_key) ?? null,
       teams_a: teams.get(c.player_a) ?? [],
       teams_b: teams.get(c.player_b) ?? [],
+      origin_a: origins.get(c.player_a) ?? null,
+      origin_b: origins.get(c.player_b) ?? null,
     }))
     .sort((a, b) => (BAND_ORDER[a.band] ?? 9) - (BAND_ORDER[b.band] ?? 9));
 
