@@ -69,6 +69,18 @@ function sharedTeams(c: Candidate): Set<string> {
   return hit;
 }
 
+/**
+ * Fields a reviewer can supply. Birth date is first because it is the one that matters: its absence is
+ * what keeps a pair out of the automatic band, so filling it converts the next run's merge from a
+ * click into a rule.
+ */
+const EDITABLE = [
+  { key: 'birth_date', label: 'Birth date', placeholder: 'YYYY-MM-DD', width: 'w-32' },
+  { key: 'position', label: 'Position', placeholder: 'C/L/R/D/G/F', width: 'w-24' },
+  { key: 'origin', label: 'Hometown', placeholder: 'City, ST, CAN', width: 'w-44' },
+  { key: 'origin_country', label: 'Country', placeholder: 'CAN', width: 'w-20' },
+] as const;
+
 const VERDICT_LABEL: Record<string, string> = {
   duplicate: 'Same player',
   not_duplicate: 'Different players',
@@ -83,6 +95,8 @@ export default function PlayerMergesPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState('');
   const [showJudged, setShowJudged] = useState(false);
+  const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
@@ -129,6 +143,27 @@ export default function PlayerMergesPage() {
           i.dedup_key === c.dedup_key ? { ...i, verdict: { verdict, reviewer, notes: null } } : i,
         ),
       );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function saveCorrection(playerId: string, fields: Record<string, string>) {
+    setSaving(playerId);
+    try {
+      const res = await fetch('/api/admin/player-merges', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, fields, reviewer: reviewer || null }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      // Deliberately does NOT refetch. The correction is applied by omni-hockey on its next detector
+      // run, so the card would come back unchanged and read as a failed save.
+      setSaved((prev) => ({ ...prev, [playerId]: true }));
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -288,6 +323,58 @@ export default function PlayerMergesPage() {
                       >
                         Open player page ↗
                       </a>
+
+                      {/* Supplying the missing value is usually more useful than judging the pair:
+                          a birth date is what the automatic band needs, so filling it lets the next
+                          run merge by rule instead of by click — and fixes the player's data for
+                          every future comparison. Blank fields are ignored, never written. */}
+                      {!c.verdict && (
+                        <div className="mt-3 border-t border-border pt-3">
+                          <div className="mb-2 text-xs text-muted-foreground">
+                            Add missing data {side.birth ? '' : '— no birth date on this row'}
+                          </div>
+                          <div className="flex flex-wrap items-end gap-2">
+                            {EDITABLE.map((f) => (
+                              <div key={f.key}>
+                                <label
+                                  className="mb-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground"
+                                  htmlFor={`${side.id}-${f.key}`}
+                                >
+                                  {f.label}
+                                </label>
+                                <Input
+                                  id={`${side.id}-${f.key}`}
+                                  className={`h-8 text-sm ${f.width}`}
+                                  placeholder={f.placeholder}
+                                  value={edits[side.id]?.[f.key] ?? ''}
+                                  onChange={(e) =>
+                                    setEdits((prev) => ({
+                                      ...prev,
+                                      [side.id]: { ...prev[side.id], [f.key]: e.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            ))}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={
+                                saving === side.id ||
+                                !Object.values(edits[side.id] ?? {}).some((v) => v.trim())
+                              }
+                              onClick={() => saveCorrection(side.id, edits[side.id] ?? {})}
+                            >
+                              Save
+                            </Button>
+                            {saved[side.id] && (
+                              <span className="text-xs text-emerald-400">
+                                saved · applies on the next nightly run
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

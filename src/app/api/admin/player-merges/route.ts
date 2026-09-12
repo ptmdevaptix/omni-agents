@@ -172,6 +172,62 @@ export async function PATCH(request: NextRequest) {
   return Response.json({ success: true });
 }
 
+// Fields a reviewer may correct. Mirrors omni-hockey's database/create_player_overrides.sql — adding
+// one here without adding it there writes a column nothing ever reads.
+const OVERRIDE_FIELDS = [
+  'first_name', 'last_name', 'birth_date', 'position',
+  'handedness', 'height_inches', 'weight_lbs', 'origin', 'origin_country',
+] as const;
+
+const NUMERIC = new Set(['height_inches', 'weight_lbs']);
+
+/**
+ * PUT — record a correction to a player's data.
+ *
+ * Written to player_overrides, NEVER to players. omni-hockey's seeders regenerate player rows and
+ * would clobber a manual edit; it applies these on its next detector run instead
+ * (research-queue-contract.md).
+ *
+ * The reason this exists on the dedup page rather than somewhere else: a missing birth date is what
+ * keeps a pair out of the automatic band. Supplying one converts the next run's merge from "someone
+ * clicked" to "the rule matched".
+ */
+export async function PUT(request: NextRequest) {
+  const body = await request.json();
+  const { playerId, fields, reviewer, note } = body ?? {};
+
+  if (!playerId) return Response.json({ error: 'playerId required' }, { status: 400 });
+
+  const patch: Record<string, unknown> = {};
+  for (const f of OVERRIDE_FIELDS) {
+    const v = fields?.[f];
+    // Empty means "no correction", not "blank it out" — the override table reads NULL as don't-touch,
+    // and a blank field must never erase good data.
+    if (v === undefined || v === null || String(v).trim() === '') continue;
+    patch[f] = NUMERIC.has(f) ? Number(v) : String(v).trim();
+  }
+  if (!Object.keys(patch).length) {
+    return Response.json({ error: 'no values to save' }, { status: 400 });
+  }
+
+  const { error } = await supabase.from('player_overrides').upsert(
+    {
+      player_id: playerId,
+      ...patch,
+      reviewer: reviewer || null,
+      note: note || null,
+      active: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'player_id' },
+  );
+
+  if (error) return Response.json({ error: error.message }, { status: 400 });
+  // Applied on omni-hockey's next detector run, not instantly — worth saying so the reviewer is not
+  // left wondering why the card still shows the old value.
+  return Response.json({ success: true, appliesOn: 'the next nightly detector run' });
+}
+
 /** Undo a verdict — the pair returns to the queue on the detector's next run. */
 export async function DELETE(request: NextRequest) {
   const dedupKey = new URL(request.url).searchParams.get('dedupKey');
