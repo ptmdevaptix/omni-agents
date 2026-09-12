@@ -179,6 +179,43 @@ async function searchPlayers(q: string) {
   }));
 }
 
+/**
+ * NHL affiliation per player: the club that holds him, and how.
+ *
+ * Without this the card shows "none recorded" for an NHL-sourced row, because team_players only
+ * holds LEAGUE roster memberships and an NHL row has none. Technically true and badly misleading —
+ * Evan Jardine reads as having no team while being a Columbus pick (2026, 121st). For a reviewer
+ * deciding whether two rows are one player, "held by CBJ" is among the most useful facts available.
+ *
+ * Queried separately from the hometown lookup on purpose: these columns arrive with a migration that
+ * may not have run yet, and folding them into that select would take the hometown down with them.
+ */
+async function nhlAffiliationFor(playerIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < playerIds.length; i += 100) {
+    const { data, error } = await supabase
+      .from('players')
+      .select('id, nhl_team, draft_year, draft_round, draft_overall, draft_team')
+      .in('id', playerIds.slice(i, i + 100));
+    if (error || !data) continue;   // pre-migration, or a transient failure: show nothing, break nothing
+
+    for (const p of data as {
+      id: string; nhl_team: string | null; draft_year: number | null;
+      draft_round: number | null; draft_overall: number | null; draft_team: string | null;
+    }[]) {
+      const parts: string[] = [];
+      if (p.nhl_team) parts.push(`held by ${p.nhl_team}`);
+      if (p.draft_year) {
+        const pick = p.draft_overall ? ` #${p.draft_overall}` : '';
+        const rd = p.draft_round ? ` rd${p.draft_round}` : '';
+        parts.push(`drafted ${p.draft_year}${rd}${pick}${p.draft_team ? ` ${p.draft_team}` : ''}`);
+      }
+      if (parts.length) out.set(p.id, parts.join(' · '));
+    }
+  }
+  return out;
+}
+
 export async function GET(request: NextRequest) {
   // Search mode — used by the manual-merge panel, not the queue.
   const q = new URL(request.url).searchParams.get('q');
@@ -200,7 +237,9 @@ export async function GET(request: NextRequest) {
   const verdictByKey = new Map(verdicts.map((v) => [v.dedup_key, v]));
 
   const ids = [...new Set(candidates.flatMap((c) => [c.player_a, c.player_b]))];
-  const [teams, origins] = await Promise.all([teamsFor(ids), originsFor(ids)]);
+  const [teams, origins, nhl] = await Promise.all([
+    teamsFor(ids), originsFor(ids), nhlAffiliationFor(ids),
+  ]);
 
   const items = candidates
     .map((c) => ({
@@ -210,6 +249,8 @@ export async function GET(request: NextRequest) {
       teams_b: teams.get(c.player_b) ?? [],
       origin_a: origins.get(c.player_a) ?? null,
       origin_b: origins.get(c.player_b) ?? null,
+      nhl_a: nhl.get(c.player_a) ?? null,
+      nhl_b: nhl.get(c.player_b) ?? null,
     }))
     .sort((a, b) => (BAND_ORDER[a.band] ?? 9) - (BAND_ORDER[b.band] ?? 9));
 

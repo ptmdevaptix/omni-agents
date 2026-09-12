@@ -42,6 +42,9 @@ interface Candidate {
   /** Hometown, read live. Often the field that settles a pair the other columns cannot. */
   origin_a: string | null;
   origin_b: string | null;
+  /** NHL club and draft, e.g. "held by CBJ · drafted 2026 rd4 #121 CBJ". Null when neither is known. */
+  nhl_a: string | null;
+  nhl_b: string | null;
 }
 
 interface SearchHit {
@@ -491,8 +494,8 @@ export default function PlayerMergesPage() {
                     than hunted for. */}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {([
-                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a, teams: c.teams_a ?? [], origin: c.origin_a },
-                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b, teams: c.teams_b ?? [], origin: c.origin_b },
+                    { name: c.name_a, birth: c.birth_a, pos: c.position_a, src: c.source_a, id: c.player_a, teams: c.teams_a ?? [], origin: c.origin_a, nhl: c.nhl_a },
+                    { name: c.name_b, birth: c.birth_b, pos: c.position_b, src: c.source_b, id: c.player_b, teams: c.teams_b ?? [], origin: c.origin_b, nhl: c.nhl_b },
                   ]).map((side, i) => (
                     <div key={i} className="rounded-md border border-border p-3">
                       <div className="font-medium">{side.name}</div>
@@ -524,11 +527,23 @@ export default function PlayerMergesPage() {
                             date is missing: the same club in the same season is strong, while two
                             different schools in one season means one of these rows is wrong about
                             something. Shared entries are marked so the comparison is not manual. */}
+                        {/* Shown only when there is something to say. An NHL-sourced row has no
+                            roster memberships, so without this it reads "Teams: none recorded" while
+                            being, say, a Columbus pick — true about rosters, misleading about the
+                            player. */}
+                        {side.nhl && (
+                          <div className="flex gap-2">
+                            <dt className="w-16 shrink-0">NHL</dt>
+                            <dd className="font-medium text-sky-300">{side.nhl}</dd>
+                          </div>
+                        )}
                         <div className="flex gap-2">
                           <dt className="w-16 shrink-0">Teams</dt>
                           <dd className="min-w-0">
                             {side.teams.length === 0 ? (
-                              <span className="italic">none recorded</span>
+                              // Said precisely: this is about LEAGUE rosters, and an NHL-sourced row
+                              // never has one. "None recorded" alone reads as "no affiliation".
+                              <span className="italic">no league roster</span>
                             ) : (
                               <ul className="space-y-0.5">
                                 {side.teams.map((t) => {
