@@ -203,14 +203,40 @@ async function nhlAffiliationFor(playerIds: string[]): Promise<Map<string, strin
       id: string; nhl_team: string | null; draft_year: number | null;
       draft_round: number | null; draft_overall: number | null; draft_team: string | null;
     }[]) {
+      // Two separate facts, stated separately. Who drafted him never changes; who holds his rights
+      // does, and they are often different clubs — Calum Ritchie was Colorado's pick and is New
+      // York's player. Collapsing them into one phrase loses whichever half is currently true.
       const parts: string[] = [];
-      if (p.nhl_team) parts.push(`held by ${p.nhl_team}`);
       if (p.draft_year) {
-        const pick = p.draft_overall ? ` #${p.draft_overall}` : '';
-        const rd = p.draft_round ? ` rd${p.draft_round}` : '';
-        parts.push(`drafted ${p.draft_year}${rd}${pick}${p.draft_team ? ` ${p.draft_team}` : ''}`);
+        const bits = [p.draft_year, p.draft_round ? `round ${p.draft_round}` : null,
+                      p.draft_overall ? `pick ${p.draft_overall}` : null].filter(Boolean);
+        parts.push(`drafted by ${p.draft_team ?? '?'} (${bits.join(', ')})`);
       }
+      if (p.nhl_team) parts.push(`rights held by ${p.nhl_team}`);
       if (parts.length) out.set(p.id, parts.join(' · '));
+    }
+  }
+  return out;
+}
+
+/**
+ * Where a player was read from, when we could not link the club.
+ *
+ * Its OWN query, on purpose. `unlinked_club` arrives with a migration that may not have run yet, and
+ * PostgREST fails the whole select on an unknown column — so folding this into the hometown lookup
+ * would take hometown down with it on every card until the migration landed. Separate, a missing
+ * column costs only this line.
+ */
+async function unlinkedClubFor(playerIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < playerIds.length; i += 100) {
+    const { data, error } = await supabase
+      .from('players')
+      .select('id, unlinked_club')
+      .in('id', playerIds.slice(i, i + 100));
+    if (error || !data) continue;   // pre-migration: show nothing, break nothing
+    for (const p of data as { id: string; unlinked_club: string | null }[]) {
+      if (p.unlinked_club) out.set(p.id, p.unlinked_club);
     }
   }
   return out;
@@ -237,16 +263,20 @@ export async function GET(request: NextRequest) {
   const verdictByKey = new Map(verdicts.map((v) => [v.dedup_key, v]));
 
   const ids = [...new Set(candidates.flatMap((c) => [c.player_a, c.player_b]))];
-  const [teams, origins, nhl] = await Promise.all([
-    teamsFor(ids), originsFor(ids), nhlAffiliationFor(ids),
+  const [teams, origins, nhl, unlinked] = await Promise.all([
+    teamsFor(ids), originsFor(ids), nhlAffiliationFor(ids), unlinkedClubFor(ids),
   ]);
 
   const items = candidates
     .map((c) => ({
       ...c,
       verdict: verdictByKey.get(c.dedup_key) ?? null,
-      teams_a: teams.get(c.player_a) ?? [],
-      teams_b: teams.get(c.player_b) ?? [],
+      // A club we could not link is appended to the roster list, tagged, so the card shows where the
+      // player was read from instead of claiming he has no history.
+      teams_a: [...(teams.get(c.player_a) ?? []),
+                ...(unlinked.has(c.player_a) ? [`${unlinked.get(c.player_a)} — club not in our data`] : [])],
+      teams_b: [...(teams.get(c.player_b) ?? []),
+                ...(unlinked.has(c.player_b) ? [`${unlinked.get(c.player_b)} — club not in our data`] : [])],
       origin_a: origins.get(c.player_a) ?? null,
       origin_b: origins.get(c.player_b) ?? null,
       nhl_a: nhl.get(c.player_a) ?? null,
