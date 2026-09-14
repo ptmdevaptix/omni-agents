@@ -177,6 +177,8 @@ export default function PlayerMergesPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState('');
   const [showJudged, setShowJudged] = useState(false);
+  // The pair decided most recently, kept visible so an immediate Undo needs no hunting. See `feed`.
+  const [lastJudged, setLastJudged] = useState<string | null>(null);
   const [showLow, setShowLow] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
@@ -231,6 +233,8 @@ export default function PlayerMergesPage() {
           i.dedup_key === c.dedup_key ? { ...i, verdict: { verdict, reviewer, notes: null } } : i,
         ),
       );
+      // Marks this as the one to keep on screen; the previously decided pair drops out now.
+      setLastJudged(c.dedup_key);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -306,6 +310,9 @@ export default function PlayerMergesPage() {
         prev.map((i) => (i.dedup_key === dedupKey ? { ...i, verdict: null } : i)),
       );
       setJudged((prev) => prev.filter((j) => j.dedup_key !== dedupKey));
+      // It is undecided again, so it belongs in the queue on its own merit rather than being held
+      // on screen as "just decided".
+      setLastJudged((prev) => (prev === dedupKey ? null : prev));
     } finally {
       setSaving(null);
     }
@@ -320,6 +327,26 @@ export default function PlayerMergesPage() {
   );
   const lowCount = useMemo(() => items.filter((i) => i.band === 'LOW' && !i.verdict).length, [items]);
   const open = useMemo(() => visible.filter((i) => !i.verdict), [visible]);
+
+  /**
+   * What the feed actually renders.
+   *
+   * A decided pair used to stay in place, greyed out, with its Undo button. That reads fine for the
+   * first one and badly for the twentieth: after a long review session the pairs still needing a
+   * decision are scattered among the ones already handled, and the list only grows.
+   *
+   * So decided pairs drop out — EXCEPT the one just decided, which stays until the next verdict.
+   * That is what keeps a misclick recoverable without hunting: the card you were looking at is still
+   * under the cursor, Undo included. Everything older is behind the "already decided" toggle, and
+   * the verdict itself is never lost either way.
+   */
+  const feed = useMemo(
+    () => (showJudged ? visible : visible.filter((i) => !i.verdict || i.dedup_key === lastJudged)),
+    [visible, showJudged, lastJudged],
+  );
+  // Decided in THIS session — they sit in `items`, unlike `judged`, which the detector already
+  // dropped from the feed upstream. Counted together so the toggle says how many are hidden in all.
+  const decidedHere = useMemo(() => items.filter((i) => i.verdict).length, [items]);
   const counts = useMemo(
     () => ({
       open: open.length,
@@ -371,9 +398,9 @@ export default function PlayerMergesPage() {
               {showLow ? 'Hide' : 'Show'} {lowCount} fuzzy-name match{lowCount === 1 ? '' : 'es'}
             </Button>
           )}
-          {judged.length > 0 && (
+          {judged.length + decidedHere > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setShowJudged((s) => !s)}>
-              {showJudged ? 'Hide' : 'Show'} {judged.length} already decided
+              {showJudged ? 'Hide' : 'Show'} {judged.length + decidedHere} already decided
             </Button>
           )}
         </div>
@@ -459,17 +486,29 @@ export default function PlayerMergesPage() {
 
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-        {!loading && visible.length === 0 && (
+        {/* Keyed on what is RENDERED, not on what was loaded. Deciding every pair leaves `visible`
+            full and `feed` empty, which under the old check produced a blank page and no
+            explanation — the one moment the reviewer most deserves to be told they are done. */}
+        {!loading && feed.length === 0 && (
           <Card>
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              Nothing to review. Duplicates that clear the automatic bar are merged without appearing
-              here.
+              {visible.length === 0 ? (
+                <>
+                  Nothing to review. Duplicates that clear the automatic bar are merged without
+                  appearing here.
+                </>
+              ) : (
+                <>
+                  All {visible.length} reviewed. Merging runs upstream; use “show already decided”
+                  above to revisit any of them.
+                </>
+              )}
             </CardContent>
           </Card>
         )}
 
         <div className="space-y-3">
-          {visible.map((c) => (
+          {feed.map((c) => (
             <Card key={c.dedup_key} className={c.verdict ? 'opacity-60' : undefined}>
               <CardContent className="py-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
