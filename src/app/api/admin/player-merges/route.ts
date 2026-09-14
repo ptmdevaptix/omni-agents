@@ -143,6 +143,35 @@ async function originsFor(playerIds: string[]): Promise<Map<string, string>> {
  *
  * Rules handle volume; this handles the exceptions.
  */
+const fold = (s?: string | null) =>
+  (s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+/**
+ * How well a row matches what was typed, lower being better.
+ *
+ * Without this, searching "Ryan Lin" returned forty rows and not one of them was Ryan Lin: every
+ * word is matched as a substring, so "Lin" pulls in Collins, Lindgren and Bolin, and an arbitrary
+ * forty of those came back in whatever order the database chose. The player you are looking for has
+ * to be at the top, or a manual merge is impossible for anyone whose surname is short.
+ */
+function searchRank(row: { first_name: string | null; last_name: string | null }, term: string): number {
+  const q = fold(term);
+  const first = fold(row.first_name), last = fold(row.last_name);
+  const full = `${first} ${last}`.trim();
+  if (full === q) return 0;
+  if (last === q) return 1;
+  if (q.includes(' ')) {
+    const [qf, ...rest] = q.split(/\s+/);
+    const ql = rest.join(' ');
+    if (first.startsWith(qf) && last === ql) return 2;
+    if (first.startsWith(qf) && last.startsWith(ql)) return 3;
+  }
+  if (last.startsWith(q)) return 4;
+  if (first === q || first.startsWith(q)) return 5;
+  if (last.includes(q) || first.includes(q)) return 6;
+  return 7;
+}
+
 async function searchPlayers(q: string) {
   const term = q.trim();
   if (term.length < 2) return [];
@@ -151,12 +180,14 @@ async function searchPlayers(q: string) {
   const words = term.split(/\s+/).filter(Boolean);
   const ors = words.flatMap((w) => [`first_name.ilike.%${w}%`, `last_name.ilike.%${w}%`]).join(',');
 
+  // Fetched wide and ranked here, then trimmed. The limit used to be applied by the DATABASE, which
+  // meant the cut was made before anything knew which rows were relevant.
   const { data, error } = await supabase
     .from('players')
     .select('id, slug, first_name, last_name, birth_date, position, origin, external_ids')
     .is('merged_into', null)          // a tombstone is already merged; offering it would be a loop
     .or(ors)
-    .limit(40);
+    .limit(400);
   if (error || !data) return [];
 
   type Row = {
@@ -164,10 +195,18 @@ async function searchPlayers(q: string) {
     birth_date: string | null; position: string | null; origin: string | null;
     external_ids: Record<string, unknown> | null;
   };
-  const ids = (data as Row[]).map((p) => p.id);
+  // Rank first, THEN trim — and keep exact-name matches together at the top, which is what makes
+  // two rows for one player visible side by side instead of pages apart.
+  const ranked = (data as Row[])
+    .sort((a, b) =>
+      searchRank(a, term) - searchRank(b, term)
+      || `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`))
+    .slice(0, 40);
+
+  const ids = ranked.map((p) => p.id);
   const teams = await teamsFor(ids);
 
-  return (data as Row[]).map((p) => ({
+  return ranked.map((p) => ({
     id: p.id,
     slug: p.slug,
     name: [p.first_name, p.last_name].filter(Boolean).join(' '),
