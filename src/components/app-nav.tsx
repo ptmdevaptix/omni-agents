@@ -22,6 +22,7 @@ export function AppNav() {
     { href: '/admin/content', label: 'Content' },
     { href: '/admin/prompts', label: 'Prompts' },
     { href: '/admin/relevance', label: 'Relevance' },
+    { href: '/admin/leagues', label: 'Leagues' },
   ];
 
   return (
